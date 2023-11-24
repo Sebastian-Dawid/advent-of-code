@@ -1,0 +1,13 @@
+# ASM/C Outputs
+**/build
+**/.cache
+
+# Rust Outputs
+**/target
+**/debug
+**/Cargo.lock
+**/*.rs.bk
+
+# Zig outputs
+**/zig-cache
+**/zig-out
