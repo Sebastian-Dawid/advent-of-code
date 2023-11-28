@@ -1,5 +1,7 @@
 # Advent of code 2023
 
+https://adventofcode.com/
+
 | Day | 1st | 2nd | ASM | Zig | Rust |  C  |
 | --: | --- | --- | --- | --- | ---- | --- |
 |   1 |     |     |     |     |      |     |
