@@ -190,12 +190,19 @@ fn part2(file: std.fs.File, allocator: Allocator) !u64 {
             continue :outer;
         }
 
-        std.debug.print("{any}\n", .{pages.items});
-        for (pages.items) |p| {
-            std.debug.print("{}:\n", .{p});
-            const constraint = page_map.get(p) orelse return error.InvalidPageRules;
-            std.debug.print("\tbefore: {any}\n", .{constraint.before.items});
-            std.debug.print("\tafter: {any}\n", .{constraint.after.items});
+        for (pages.items, 0..) |_, i| {
+            for (pages.items, 0..) |s, j| {
+                const constraint = page_map.get(s) orelse return error.InvalidPageRules;
+                const before = constraint.before.items;
+                var count: u64 = 0;
+                for (before) |b| {
+                    for (pages.items) |t| count += if (t == b) 1 else 0;
+                }
+                if (count == i) {
+                    std.mem.swap(u64, &pages.items[i], &pages.items[j]);
+                    break;
+                }
+            }
         }
 
         // if the page setup is valid we will continue the outer loop therefore never getting here.
