@@ -37,6 +37,17 @@ const Map = struct {
         self.obstacles.deinit();
     }
 
+    fn copy(self: *@This()) !@This() {
+        var other: @This() = undefined;
+        other.allocator = self.allocator;
+        other.obstacles = try self.obstacles.clone();
+        other.width = self.width;
+        other.height = self.height;
+        other.guard = self.guard;
+        other.guard_initial = self.guard_initial;
+        return other;
+    }
+
     fn reset(self: *@This()) void {
         self.guard = self.guard_initial;
     }
@@ -138,6 +149,26 @@ fn part1(file: std.fs.File, allocator: Allocator) !u64 {
     return sum;
 }
 
+fn check_position(map: *Map, position: Map.Position, count: *u64, mutex: *std.Thread.Mutex) void {
+    var _map = map.copy() catch { return; };
+    defer _map.deinit();
+    _map.obstacles.append(position) catch { return; };
+    var visited = std.AutoHashMap(Map.Guard, u64).init(_map.allocator);
+    defer visited.deinit();
+    visited.put(_map.guard, 1) catch { return; };
+    while (_map.step()) {
+        const e = visited.getOrPut(_map.guard) catch { return; };
+        if (e.found_existing) {
+            mutex.lock();
+            defer mutex.unlock();
+            count.* += 1;
+            break;
+        } else {
+            e.value_ptr.* = 1;
+        }
+    }
+}
+
 fn part2(file: std.fs.File, allocator: Allocator) !u64 {
     var buffered_reader = std.io.bufferedReader(file.reader());
     const reader = buffered_reader.reader();
@@ -172,27 +203,20 @@ fn part2(file: std.fs.File, allocator: Allocator) !u64 {
     while (map.step()) {
         _ = try visited_normal.getOrPutValue(map.guard.pos, 1);
     }
+    map.reset();
 
     var count: u64 = 0;
     var it = visited_normal.keyIterator();
-    while (it.next()) |k| {
-        map.reset();
-        try map.obstacles.append(k.*);
-        var visited = std.AutoHashMap(Map.Guard, u64).init(allocator);
-        defer visited.deinit();
-        try visited.put(map.guard, 1);
-        while (map.step()) {
-            const e = try visited.getOrPut(map.guard);
-            if (e.found_existing) {
-                count += 1;
-                break;
-            } else {
-                e.value_ptr.* = 1;
-            }
-            //std.debug.print("===\n", .{});
-            //map.print();
+    {
+        var mutex = std.Thread.Mutex{};
+        var pool: std.Thread.Pool = undefined;
+        try pool.init(.{
+            .allocator = allocator,
+        });
+        defer pool.deinit();
+        while (it.next()) |k| {
+            try pool.spawn(check_position, .{ &map, k.*, &count, &mutex });
         }
-        _ = map.obstacles.pop();
     }
 
     return count;
