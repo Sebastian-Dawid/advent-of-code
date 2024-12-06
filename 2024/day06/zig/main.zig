@@ -16,13 +16,14 @@ const Map = struct {
             }
         }
     };
-    const Position = struct { x: u64, y: u64 };
+    const Position = struct { x: i64, y: i64 };
     const Guard = struct { pos: Position, dir: Direction };
     allocator: Allocator,
     obstacles: std.ArrayList(Position),
     width: u64,
     height: u64,
     guard: Guard,
+    guard_initial: Guard,
 
     fn init(allocator: Allocator) @This() {
         var self: @This() = undefined;
@@ -34,6 +35,10 @@ const Map = struct {
     }
     fn deinit(self: *@This()) void {
         self.obstacles.deinit();
+    }
+
+    fn reset(self: *@This()) void {
+        self.guard = self.guard_initial;
     }
 
     fn step(self: *@This()) bool {
@@ -57,7 +62,7 @@ const Map = struct {
             }
             self.guard.dir = self.guard.dir.advance();
         }
-        if (self.guard.pos.x >= self.width or self.guard.pos.y >= self.height)
+        if (self.guard.pos.x >= self.width or self.guard.pos.x < 0 or self.guard.pos.y >= self.height or self.guard.pos.y < 0)
             return false;
         return true;
     }
@@ -106,11 +111,11 @@ fn part1(file: std.fs.File, allocator: Allocator) !u64 {
             map.width = line.len;
         for (line, 0..) |c, j| {
             switch (c) {
-                '#' => try map.obstacles.append(.{ .x = j, .y = i }),
-                '^' => map.guard = .{ .pos = .{ .x = j, .y = i }, .dir = Map.Direction.UP },
-                '>' => map.guard = .{ .pos = .{ .x = j, .y = i }, .dir = Map.Direction.RIGHT },
-                'v' => map.guard = .{ .pos = .{ .x = j, .y = i }, .dir = Map.Direction.DOWN },
-                '<' => map.guard = .{ .pos = .{ .x = j, .y = i }, .dir = Map.Direction.LEFT },
+                '#' => try map.obstacles.append(.{ .x = @intCast(j), .y = @intCast(i) }),
+                '^' => map.guard = .{ .pos = .{ .x = @intCast(j), .y = @intCast(i) }, .dir = Map.Direction.UP },
+                '>' => map.guard = .{ .pos = .{ .x = @intCast(j), .y = @intCast(i) }, .dir = Map.Direction.RIGHT },
+                'v' => map.guard = .{ .pos = .{ .x = @intCast(j), .y = @intCast(i) }, .dir = Map.Direction.DOWN },
+                '<' => map.guard = .{ .pos = .{ .x = @intCast(j), .y = @intCast(i) }, .dir = Map.Direction.LEFT },
                 else => {},
             }
         }
@@ -133,6 +138,66 @@ fn part1(file: std.fs.File, allocator: Allocator) !u64 {
     return sum;
 }
 
+fn part2(file: std.fs.File, allocator: Allocator) !u64 {
+    var buffered_reader = std.io.bufferedReader(file.reader());
+    const reader = buffered_reader.reader();
+
+    const stat = try file.stat();
+
+    var map = Map.init(allocator);
+    defer map.deinit();
+
+    var i: u64 = 0;
+    while (try reader.readUntilDelimiterOrEofAlloc(allocator, '\n', stat.size)) |line| : (i += 1) {
+        defer allocator.free(line);
+        if (i == 0)
+            map.width = line.len;
+        for (line, 0..) |c, j| {
+            switch (c) {
+                '#' => try map.obstacles.append(.{ .x = @intCast(j), .y = @intCast(i) }),
+                '^' => map.guard = .{ .pos = .{ .x = @intCast(j), .y = @intCast(i) }, .dir = Map.Direction.UP },
+                '>' => map.guard = .{ .pos = .{ .x = @intCast(j), .y = @intCast(i) }, .dir = Map.Direction.RIGHT },
+                'v' => map.guard = .{ .pos = .{ .x = @intCast(j), .y = @intCast(i) }, .dir = Map.Direction.DOWN },
+                '<' => map.guard = .{ .pos = .{ .x = @intCast(j), .y = @intCast(i) }, .dir = Map.Direction.LEFT },
+                else => {},
+            }
+        }
+    }
+    map.guard_initial = map.guard;
+    map.height = i;
+
+    var visited_normal = std.AutoHashMap(Map.Position, u64).init(allocator);
+    defer visited_normal.deinit();
+    try visited_normal.put(map.guard.pos, 1);
+    while (map.step()) {
+        _ = try visited_normal.getOrPutValue(map.guard.pos, 1);
+    }
+
+    var count: u64 = 0;
+    var it = visited_normal.keyIterator();
+    while (it.next()) |k| {
+        map.reset();
+        try map.obstacles.append(k.*);
+        var visited = std.AutoHashMap(Map.Guard, u64).init(allocator);
+        defer visited.deinit();
+        try visited.put(map.guard, 1);
+        while (map.step()) {
+            const e = try visited.getOrPut(map.guard);
+            if (e.found_existing) {
+                count += 1;
+                break;
+            } else {
+                e.value_ptr.* = 1;
+            }
+            //std.debug.print("===\n", .{});
+            //map.print();
+        }
+        _ = map.obstacles.pop();
+    }
+
+    return count;
+}
+
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
@@ -147,6 +212,11 @@ pub fn main() !void {
         defer file.close();
         std.debug.print("Part 1: {}\n", .{try part1(file, allocator)});
     }
+    {
+        const file = std.fs.cwd().openFile(filename, .{ .mode = .read_only }) catch return error.FileNotFound;
+        defer file.close();
+        std.debug.print("Part 2: {}\n", .{try part2(file, allocator)});
+    }
 }
 
 test "part 1" {
@@ -155,4 +225,12 @@ test "part 1" {
     const allocator = std.testing.allocator;
     const result = part1(file, allocator);
     try std.testing.expectEqual(41, result);
+}
+
+test "part 2" {
+    const file = std.fs.cwd().openFile("../../../inputs/2024/day06/test.txt", .{ .mode = .read_only }) catch return error.FileNotFound;
+    defer file.close();
+    const allocator = std.testing.allocator;
+    const result = part2(file, allocator);
+    try std.testing.expectEqual(6, result);
 }
