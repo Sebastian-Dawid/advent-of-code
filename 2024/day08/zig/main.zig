@@ -85,9 +85,28 @@ fn part1(file: std.fs.File, allocator: Allocator) !u64 {
 }
 
 fn part2(file: std.fs.File, allocator: Allocator) !u64 {
-    _ = allocator; // autofix
-    _ = file; // autofix
-    return 0;
+    var map = try parse_map(file, allocator);
+    defer map.deinit();
+
+    for (map.antennas.items, 0..) |a, i| {
+        outer: for (map.antennas.items, 0..) |b, j| {
+            if (i == j) continue;
+            if (a.type != b.type) continue;
+            var k: i32 = 0;
+            while (true) {
+                const pos = a.pos.add(b.pos.sub(a.pos).scale(k));
+                if (pos.x < 0 or pos.y < 0 or pos.x >= map.width or pos.y >= map.height) continue :outer;
+                try map.antinodes.put(pos, 1);
+                k += 1;
+            }
+        }
+    }
+
+    var sum: u64 = 0;
+    var it = map.antinodes.valueIterator();
+    while (it.next()) |v| sum += v.*;
+
+    return sum;
 }
 
 pub fn main() !void {
@@ -120,9 +139,9 @@ test "part 1" {
 }
 
 test "part 2" {
-    const file = std.fs.cwd().openFile("../../../inputs/2024/day07/test.txt", .{ .mode = .read_only }) catch return error.FileNotFound;
+    const file = std.fs.cwd().openFile("../../../inputs/2024/day08/test.txt", .{ .mode = .read_only }) catch return error.FileNotFound;
     defer file.close();
     const allocator = std.testing.allocator;
     const result = part2(file, allocator);
-    try std.testing.expectEqual(11387, result);
+    try std.testing.expectEqual(34, result);
 }
