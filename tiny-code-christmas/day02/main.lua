@@ -2,7 +2,7 @@ function TIC()
 	cls(8)
 	t=time()/50
 	for y=0,100,5 do
-		tri(120,y,120-y,y+5,120+y,y+5,7)
+		tri(120,y-1,120-y/2,y+5,120+y/2,y+5,7)
 	end
 	rect(118,105,4,10,3)
 	rect(0,115,240,20,6)
