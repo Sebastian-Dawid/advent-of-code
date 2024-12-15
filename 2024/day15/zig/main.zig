@@ -5,6 +5,7 @@ const File = std.fs.File;
 const Solver = struct {
     const Direction = enum { UP, RIGHT, DOWN, LEFT };
     const Object = enum { WALL, BOX };
+    const TileWidth = enum(u64) { ONE = 1, TWO = 2 };
     const Vec2 = struct {
         x: u64,
         y: u64,
@@ -40,11 +41,13 @@ const Solver = struct {
     map: std.AutoHashMap(Vec2, Object),
     instructions: []Direction,
     current_instruction: usize,
+    tile_width: TileWidth,
 
-    fn init(file: File, allocator: Allocator) !@This() {
+    fn init(comptime tile_width: TileWidth, file: File, allocator: Allocator) !@This() {
         var self: @This() = undefined;
         self.allocator = allocator;
         self.map = std.AutoHashMap(Vec2, Object).init(allocator);
+        self.tile_width = tile_width;
 
         var buffered_reader = std.io.bufferedReader(file.reader());
         const reader = buffered_reader.reader();
@@ -56,9 +59,9 @@ const Solver = struct {
             if (line.len == 0) break;
             for (line, 0..) |c, x| {
                 switch (c) {
-                    '#' => try self.map.put(.{ .x = x, .y = y }, .WALL),
-                    'O' => try self.map.put(.{ .x = x, .y = y }, .BOX),
-                    '@' => self.robot = .{ .x = x, .y = y },
+                    '#' => try self.map.put(.{ .x = x * @intFromEnum(tile_width), .y = y }, .WALL),
+                    'O' => try self.map.put(.{ .x = x * @intFromEnum(tile_width), .y = y }, .BOX),
+                    '@' => self.robot = .{ .x = x * @intFromEnum(tile_width), .y = y },
                     else => {},
                 }
             }
@@ -91,9 +94,71 @@ const Solver = struct {
         self.allocator.free(self.instructions);
     }
 
-    fn move(self: *@This(), position: Vec2, instruction: Direction) !void {
-        if (self.map.get(position) == null) return;
-        try self.move(position.peek(instruction), instruction);
+    fn check_position(self: *const @This(), position: Vec2, instruction: Direction) ?Object {
+        if (self.tile_width == .ONE) return self.map.get(position);
+
+        switch (instruction) {
+            .RIGHT => return self.map.get(position),
+            else => {
+                if (self.map.get(position)) |v| return v;
+                return self.map.get(position.peek(.LEFT));
+            },
+        }
+    }
+
+    fn check_for_wall(self: *const @This(), _position: Vec2, instruction: Direction) bool {
+        var position = _position;
+        const check = self.check_position(position, instruction);
+        switch (self.tile_width) {
+            .ONE => {
+                if (check == null) return true;
+                if (check.? == .WALL) return false;
+                return self.check_for_wall(position.peek(instruction), instruction);
+            },
+            .TWO => {
+                if (self.map.get(position) == null) position.move(.LEFT);
+                if (check == null) return true;
+                if (check.? == .WALL) return false;
+                switch (instruction) {
+                    .RIGHT => {
+                        return self.check_for_wall(position.peek(instruction).peek(instruction), instruction);
+                    },
+                    .LEFT => {
+                        return self.check_for_wall(position.peek(instruction), instruction);
+                    },
+                    .UP, .DOWN => {
+                        return (self.check_for_wall(position.peek(instruction), instruction) and self.check_for_wall(position.peek(.RIGHT).peek(instruction), instruction));
+                    },
+                }
+            },
+        }
+    }
+
+    fn move(self: *@This(), _position: Vec2, instruction: Direction) !void {
+        var position = _position;
+        switch (self.tile_width) {
+            .ONE => {
+                if (self.map.get(position) == null) return;
+                try self.move(position.peek(instruction), instruction);
+            },
+            .TWO => {
+                if (self.check_position(position, instruction) == null) return;
+                if (self.map.get(position) == null) position.move(.LEFT);
+
+                switch (instruction) {
+                    .RIGHT => {
+                        try self.move(position.peek(instruction).peek(instruction), instruction);
+                    },
+                    .LEFT => {
+                        try self.move(position.peek(instruction), instruction);
+                    },
+                    .UP, .DOWN => {
+                        try self.move(position.peek(instruction), instruction);
+                        try self.move(position.peek(.RIGHT).peek(instruction), instruction);
+                    },
+                }
+            },
+        }
         _ = self.map.remove(position);
         try self.map.put(position.peek(instruction), .BOX);
     }
@@ -101,18 +166,10 @@ const Solver = struct {
     fn step(self: *@This()) !bool {
         if (self.current_instruction >= self.instructions.len) return false;
         const instruction = self.instructions[self.current_instruction];
-        var position = self.robot.peek(instruction);
 
-        wall: {
-            while (self.map.get(position)) |value| {
-                if (value == .WALL) {
-                    break :wall;
-                }
-                position = position.peek(instruction);
-            } else {
-                try self.move(self.robot.peek(instruction), instruction);
-                self.robot.move(instruction);
-            }
+        if (self.check_for_wall(self.robot.peek(instruction), instruction)) {
+            try self.move(self.robot.peek(instruction), instruction);
+            self.robot.move(instruction);
         }
 
         self.current_instruction += 1;
@@ -121,7 +178,7 @@ const Solver = struct {
 };
 
 fn part1(file: File, allocator: Allocator) !u64 {
-    var solver = try Solver.init(file, allocator);
+    var solver = try Solver.init(.ONE, file, allocator);
     defer solver.deinit();
 
     while (try solver.step()) {}
@@ -138,9 +195,21 @@ fn part1(file: File, allocator: Allocator) !u64 {
 }
 
 fn part2(file: File, allocator: Allocator) !u64 {
-    _ = allocator; // autofix
-    _ = file; // autofix
-    return 0;
+    var solver = try Solver.init(.TWO, file, allocator);
+    defer solver.deinit();
+
+    while (try solver.step()) {}
+
+    var sum: u64 = 0;
+    var it = solver.map.keyIterator();
+    while (it.next()) |k| {
+        if (solver.map.get(k.*)) |v| {
+            if (v == .BOX) {
+                sum += 100 * k.y + k.x;
+            }
+        }
+    }
+    return sum;
 }
 
 pub fn main() !void {
@@ -177,4 +246,20 @@ test "part 1.2" {
     const allocator = std.testing.allocator;
     const result = part1(file, allocator);
     try std.testing.expectEqual(10_092, result);
+}
+
+test "part 2.1" {
+    const file = std.fs.cwd().openFile("../../../inputs/2024/day15/test_2.txt", .{ .mode = .read_only }) catch return error.FileNotFound;
+    defer file.close();
+    const allocator = std.testing.allocator;
+    const result = part2(file, allocator);
+    try std.testing.expectEqual(9_021, result);
+}
+
+test "part 2.2" {
+    const file = std.fs.cwd().openFile("../../../inputs/2024/day15/test_3.txt", .{ .mode = .read_only }) catch return error.FileNotFound;
+    defer file.close();
+    const allocator = std.testing.allocator;
+    const result = part2(file, allocator);
+    try std.testing.expectEqual(618, result);
 }
