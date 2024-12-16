@@ -1,37 +1,33 @@
-//! By convention, main.zig is where your main function lives in the case that
-//! you are building an executable. If you are making a library, the convention
-//! is to delete this file and start with root.zig instead.
 const std = @import("std");
+const Allocator = std.mem.Allocator;
+const File = std.fs.File;
+
+fn part1(file: File, allocator: Allocator) !u64 {
+    _ = file;
+    _ = allocator;
+    return 0;
+}
 
 pub fn main() !void {
-    // Prints to stderr (it's a shortcut based on `std.io.getStdErr()`)
-    std.debug.print("All your {s} are belong to us.\n", .{"codebase"});
+    var gpa = std.heap.GeneralPurposeAllocator(.{}).init;
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
 
-    // stdout is for the actual output of your application, for example if you
-    // are implementing gzip, then only the compressed bytes should be sent to
-    // stdout, not any debugging messages.
-    const stdout_file = std.io.getStdOut().writer();
-    var bw = std.io.bufferedWriter(stdout_file);
-    const stdout = bw.writer();
-
-    try stdout.print("Run `zig build test` to run the tests.\n", .{});
-
-    try bw.flush(); // Don't forget to flush!
+    var args = try std.process.argsWithAllocator(allocator);
+    defer args.deinit();
+    _ = args.next();
+    const filename = args.next() orelse return error.FailedToOpenFile;
+    {
+        const file = try std.fs.cwd().openFile(filename, .{ .mode = .read_only });
+        defer file.close();
+        std.debug.print("Part 1: {}\n", .{try part1(file, allocator)});
+    }
 }
 
-test "simple test" {
-    var list = std.ArrayList(i32).init(std.testing.allocator);
-    defer list.deinit(); // Try commenting this out and see if zig detects the memory leak!
-    try list.append(42);
-    try std.testing.expectEqual(@as(i32, 42), list.pop());
-}
-
-test "fuzz example" {
-    const global = struct {
-        fn testOne(input: []const u8) anyerror!void {
-            // Try passing `--fuzz` to `zig build test` and see if it manages to fail this test case!
-            try std.testing.expect(!std.mem.eql(u8, "canyoufindme", input));
-        }
-    };
-    try std.testing.fuzz(global.testOne, .{});
+test "part 1" {
+    const file = std.fs.cwd().openFile("../../../inputs/2024/day<nr>/test.txt", .{ .mode = .read_only }) catch return error.FileNotFound;
+    defer file.close();
+    const allocator = std.testing.allocator;
+    const result = part1(file, allocator);
+    try std.testing.expectEqual(0, result);
 }
