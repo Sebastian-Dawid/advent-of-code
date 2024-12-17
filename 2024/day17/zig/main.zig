@@ -70,7 +70,7 @@ const Computer = struct {
         _ = split.next();
         const program = split.next() orelse return error.InvalidInputFormat;
         var prog = std.mem.splitAny(u8, program[1..], ",");
-        
+
         var size: usize = 0;
         while (prog.next()) |_| size += 1;
         self.instructions = try self.allocator.alloc(u3, size);
@@ -80,7 +80,7 @@ const Computer = struct {
         while (prog.next()) |o| {
             self.instructions[i] = try std.fmt.parseInt(u3, o, 10);
             i += 1;
-        } 
+        }
 
         return self;
     }
@@ -89,12 +89,20 @@ const Computer = struct {
         self.out.deinit();
     }
 
+    fn reset(self: *@This()) void {
+        self.A = 0;
+        self.B = 0;
+        self.C = 0;
+        self.ip = 0;
+        self.out.clearAndFree();
+    }
+
     fn step(self: *@This()) !bool {
         if (self.ip >= self.instructions.len) return false;
 
         const opcode: Opcode = @enumFromInt(self.instructions[self.ip]);
         var operand: Operand = undefined;
-        switch(OPCODE_OPERAND_TYPES[@intFromEnum(opcode)]) {
+        switch (OPCODE_OPERAND_TYPES[@intFromEnum(opcode)]) {
             .LITERAL => operand = .{ .LITERAL = self.instructions[self.ip + 1] },
             .COMBO => operand = .{ .COMBO = @enumFromInt(self.instructions[self.ip + 1]) },
             .IGNORED => {},
@@ -110,9 +118,9 @@ const Computer = struct {
                     else => @intFromEnum(operand.COMBO),
                 });
                 switch (opcode) {
-                    .ADV => self.A = self.A/denom,
-                    .BDV => self.B = self.A/denom,
-                    .CDV => self.C = self.A/denom,
+                    .ADV => self.A = self.A / denom,
+                    .BDV => self.B = self.A / denom,
+                    .CDV => self.C = self.A / denom,
                     else => {},
                 }
             },
@@ -157,8 +165,8 @@ const Computer = struct {
         var buffer = try allocator.alloc(u8, size);
         buffer[0] = @as(u8, self.out.items[0]) + 0x30;
         for (self.out.items[1..], 1..) |v, i| {
-            buffer[(i-1)*2 + 1] = ',';
-            buffer[i*2] = @as(u8, v) + 0x30;
+            buffer[(i - 1) * 2 + 1] = ',';
+            buffer[i * 2] = @as(u8, v) + 0x30;
         }
         return buffer;
     }
@@ -171,6 +179,30 @@ fn part1(file: File, allocator: Allocator) ![]u8 {
     while (try computer.step()) {}
 
     return try computer.output(allocator) orelse return error.NoOutput;
+}
+
+fn part2(file: File, allocator: Allocator) !u64 {
+    var computer = try Computer.init(file, allocator);
+    defer computer.deinit();
+    var program: []u8 = try allocator.alloc(u8, computer.instructions.len * 2 - 1);
+    defer allocator.free(program);
+    program[0] = @as(u8, computer.instructions[0]) + 0x30;
+    for (computer.instructions[1..], 1..) |v, i| {
+        program[(i - 1) * 2 + 1] = ',';
+        program[i * 2] = @as(u8, v) + 0x30;
+    }
+
+    var A: u64 = 0;
+    while (true) : (A += 1) {
+        computer.reset();
+        computer.A = A;
+        while (try computer.step()) {}
+
+        const output = try computer.output(allocator) orelse return error.NoOutput;
+        defer allocator.free(output);
+        if (std.mem.eql(u8, output, program)) break;
+    }
+    return A;
 }
 
 pub fn main() !void {
@@ -189,6 +221,12 @@ pub fn main() !void {
         defer allocator.free(result);
         std.debug.print("Part 1: {s}\n", .{result});
     }
+    {
+        const file = try std.fs.cwd().openFile(filename, .{ .mode = .read_only });
+        defer file.close();
+        const result = try part2(file, allocator);
+        std.debug.print("Part 1: {}\n", .{result});
+    }
 }
 
 test "part 1" {
@@ -198,4 +236,12 @@ test "part 1" {
     const result = try part1(file, allocator);
     defer allocator.free(result);
     try std.testing.expectEqualStrings("4,6,3,5,6,3,5,2,1,0", result);
+}
+
+test "part 2" {
+    const file = std.fs.cwd().openFile("../../../inputs/2024/day17/test_2.txt", .{ .mode = .read_only }) catch return error.FileNotFound;
+    defer file.close();
+    const allocator = std.testing.allocator;
+    const result = try part2(file, allocator);
+    try std.testing.expectEqual(117_440, result);
 }
