@@ -192,17 +192,40 @@ fn part2(file: File, allocator: Allocator) !u64 {
         program[i * 2] = @as(u8, v) + 0x30;
     }
 
-    var A: u64 = 0;
-    while (true) : (A += 1) {
-        computer.reset();
-        computer.A = A;
-        while (try computer.step()) {}
+    var quines = std.AutoArrayHashMap(usize, void).init(allocator);
+    defer quines.deinit();
+    try quines.put(0, void{});
 
-        const output = try computer.output(allocator) orelse return error.NoOutput;
-        defer allocator.free(output);
-        if (std.mem.eql(u8, output, program)) break;
+    var i: isize = @as(isize, @intCast(computer.instructions.len - 1));
+    while (i >= 0) : (i -= 1) {
+        const B = computer.instructions[@intCast(i)];
+        var new_quine = std.AutoArrayHashMap(usize, void).init(allocator);
+        defer new_quine.deinit();
+
+        for (quines.keys()) |A| {
+            var j: u4 = 0;
+            while (j < 8) : (j += 1) {
+                computer.reset();
+                computer.A = (A << 3) + j;
+                while (try computer.step()) {
+                    if (@as(Opcode, @enumFromInt(computer.instructions[computer.ip])) == .JNZ) break;
+                }
+                if (computer.out.items[0] == B) {
+                    try new_quine.put((A << 3) + j, void{});
+                }
+            }
+        }
+
+        quines.clearAndFree();
+        quines = try new_quine.clone();
     }
-    return A;
+
+    var min: usize = std.math.maxInt(usize);
+    for (quines.keys()) |q| {
+        if (q < min) min = q;
+    }
+
+    return min;
 }
 
 pub fn main() !void {
@@ -225,7 +248,7 @@ pub fn main() !void {
         const file = try std.fs.cwd().openFile(filename, .{ .mode = .read_only });
         defer file.close();
         const result = try part2(file, allocator);
-        std.debug.print("Part 1: {}\n", .{result});
+        std.debug.print("Part 2: {}\n", .{result});
     }
 }
 
