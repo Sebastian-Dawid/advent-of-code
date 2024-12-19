@@ -121,6 +121,48 @@ fn part1(file: File, allocator: Allocator) !u64 {
     return count;
 }
 
+fn part2(file: File, allocator: Allocator) !u64 {
+    var buffered_reader = std.io.bufferedReader(file.reader());
+    const reader = buffered_reader.reader();
+    const stat = try file.stat();
+
+    const av = try reader.readUntilDelimiterOrEofAlloc(allocator, '\n', stat.size);
+    if (av == null) return error.InvalidFormat;
+    defer allocator.free(av.?);
+    var split = std.mem.splitAny(u8, av.?, ", ");
+    var count: usize = 0;
+    while (split.next()) |s| {
+        if (s.len == 0) continue;
+        count += 1;
+    }
+    split.reset();
+    var availables = try allocator.alloc([]u8, count);
+    defer {
+        for (availables) |a| allocator.free(a);
+        allocator.free(availables);
+    }
+
+    var i: usize = 0;
+    while (split.next()) |s| {
+        if (s.len == 0) continue;
+        availables[i] = try allocator.alloc(u8, s.len);
+        @memcpy(availables[i], s);
+        i += 1;
+    }
+
+    var trie = try Trie.init(availables, allocator);
+    defer trie.deinit();
+
+    try reader.skipUntilDelimiterOrEof('\n');
+    count = 0;
+    while (try reader.readUntilDelimiterOrEofAlloc(allocator, '\n', stat.size)) |line| {
+        defer allocator.free(line);
+        count += try trie.find(line);
+    }
+
+    return count;
+}
+
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}).init;
     defer _ = gpa.deinit();
@@ -135,6 +177,11 @@ pub fn main() !void {
         defer file.close();
         std.debug.print("Part 1: {}\n", .{try part1(file, allocator)});
     }
+    {
+        const file = try std.fs.cwd().openFile(filename, .{ .mode = .read_only });
+        defer file.close();
+        std.debug.print("Part 2: {}\n", .{try part2(file, allocator)});
+    }
 }
 
 test "part 1" {
@@ -143,4 +190,12 @@ test "part 1" {
     const allocator = std.testing.allocator;
     const result = part1(file, allocator);
     try std.testing.expectEqual(6, result);
+}
+
+test "part 2" {
+    const file = std.fs.cwd().openFile("../../../inputs/2024/day19/test.txt", .{ .mode = .read_only }) catch return error.FileNotFound;
+    defer file.close();
+    const allocator = std.testing.allocator;
+    const result = part2(file, allocator);
+    try std.testing.expectEqual(16, result);
 }
