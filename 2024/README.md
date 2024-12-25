@@ -28,4 +28,4 @@ https://adventofcode.com/
 |  22 |  x  |  x  |     |  x  |
 |  23 |  x  |  x  |     |  x  |
 |  24 |  x  |  x  |     |  x  |
-|  25 |     |     |     |     |
+|  25 |  x  |  x  |     |  x  |
