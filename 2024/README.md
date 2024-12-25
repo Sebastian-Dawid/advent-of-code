@@ -27,5 +27,5 @@ https://adventofcode.com/
 |  21 |  x  |  x  |     |  x  |
 |  22 |  x  |  x  |     |  x  |
 |  23 |  x  |  x  |     |  x  |
-|  24 |  x  |     |     |  x  |
+|  24 |  x  |  x  |     |  x  |
 |  25 |     |     |     |     |
