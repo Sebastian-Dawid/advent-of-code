@@ -10,4 +10,5 @@
 
 # Zig outputs
 **/zig-cache
+**/.zig-cache
 **/zig-out
