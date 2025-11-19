@@ -1,14 +1,14 @@
 .section .data
 
-.equ SYS_READ,	0
-.equ SYS_WRITE,	1
-.equ SYS_OPEN,	2
-.equ SYS_CLOSE,	3
-.equ SYS_FSTAT,	5
-.equ SYS_MMAP,	9
-.equ SYS_EXIT,	60
+.equ	SYS_READ,	0
+.equ	SYS_WRITE,	1
+.equ	SYS_OPEN,	2
+.equ	SYS_CLOSE,	3
+.equ	SYS_FSTAT,	5
+.equ	SYS_MMAP,	9
+.equ	SYS_EXIT,	60
 
-.equ STDOUT,	1
+.equ	STDOUT,	1
 
 .section .text
 .globl _start
@@ -44,7 +44,7 @@ alloc:
 	popq	%rsi
 	ret
 
-# Print the number stored in %rax to STDOUT
+# Print the number stored in %rdi to STDOUT
 # %rax and %rdx are clobbered
 printNumber:
 	# NOTE: divq performs an unsigned integer division where
@@ -59,7 +59,8 @@ printNumber:
 
 	# uint8_t count = 0;
 	movq	$1,	%rcx
-	movq	$10,	%rbx
+	# value = %rdi
+	movq	%rdi,	%rax
 
 	# Add a newline to the end of the string
 	subq	$1,	%rsp
@@ -69,13 +70,13 @@ printNumber:
 printNumber.loop:
 	# value / 10 = 10 * result + remainder
 	movq	$0,	%rdx
-	divq	%rbx
+	divq	-1(%rbp)
 	
 	# Append a character to the front of the string
 	subq	$1,	%rsp
 
 	# Translate remainder to ASCII and store in string
-	add	$0x30,	%dl
+	addb	$0x30,	%dl
 	movb	%dl,	(%rsp)
 	incq	%rcx
 
@@ -95,8 +96,8 @@ printNumber.loop:
 	popq	%rcx
 	ret
 
-# Parse the number in the string at %rsi
-# The number of digits in the number is given in %rdi
+# Parse the number in the string at %rdi
+# The number of digits in the number is given in %rsi
 # The parsed number is written to %rax
 parseNumber:
 	pushq	%rbp
@@ -107,36 +108,35 @@ parseNumber:
 	pushq	%rbx
 	pushq	%rcx
 	pushq	%rdx
-
 	
-	movq	$1,	%rcx
-	movq	$1,	%rax
-parseNumber.initialPower:
-	mulq	-8(%rbp)
-	incq	%rcx
-	cmp	%rcx,	%rdi
-	jne	parseNumber.initialPower
-
-	movq	$0,	%rdx
+	# result = 0
 	movq	$0,	%rcx
+	# digit = 1
+	movq	$1,	%rax
+	# i = len
+	# do {
 parseNumber.parse:
-	movzbq	(%rsi),	%rbx
+	# i--
+	decq	%rsi
+	# val = str[i] - 0x30
+	movzbq	(%rdi, %rsi),	%rbx
 	subb	$0x30,	%bl
+	
+	# result += digit * val
 	imulq	%rax,	%rbx
 	addq	%rbx,	%rcx
-	divq	-8(%rbp)
-	incq	%rsi
-	cmp	$0,	%rax
+
+	# digit *= 10
+	mulq	-8(%rbp)
+	# } while(i > 0);
+	cmp	$0,	%rsi
 	jne	parseNumber.parse
 
 	movq	%rcx,	%rax
-
 	popq	%rdx
 	popq	%rcx
 	popq	%rbx
-
 	leave
-
 	ret
 
 # Parse the data at %rax. The filesize is passed through %rbx
@@ -180,10 +180,11 @@ _start:
 	movq	%r8,	%rdi
 	syscall
 
-	movq	(%rsp),	%rsi
-	movq	$4,	%rdi
+	movq	(%rsp),	%rdi
+	movq	$4,	%rsi
 	call	parseNumber
 
+	movq	%rax,	%rdi
 	call printNumber
 
         mov $SYS_EXIT,	%rax
