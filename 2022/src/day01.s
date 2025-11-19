@@ -13,6 +13,37 @@
 .section .text
 .globl _start
 
+# Allocate %rdi bytes.
+# The address of the allocation is returned in %rax.
+alloc:
+	pushq	%rsi
+	pushq	%rdx
+	pushq	%r10
+	pushq	%r8
+	pushq	%r9
+
+	movq	$SYS_MMAP,	%rax
+	# size
+	movq	%rdi,	%rsi
+	# addr
+	movq	$0,	%rdi
+	# PROT_READ | PROT_WRITE
+	movq	$3,	%rdx
+	# MAP_PRIVATE | MAP_ANONYMOUS
+	movq	0x22,	%r10
+	# No filedescriptor
+	movq	-1,	%r8
+	# offset 0
+	movq	$0,	%r9
+	syscall
+
+	popq	%r9
+	popq	%r8
+	popq	%r10
+	popq	%rdx
+	popq	%rsi
+	ret
+
 # Print the number stored in %rax to STDOUT
 # %rax and %rdx are clobbered
 printNumber:
@@ -108,7 +139,7 @@ parseNumber.parse:
 
 	ret
 
-# Parse the data at %rax
+# Parse the data at %rax. The filesize is passed through %rbx
 # Return address of sorted list of sums in %rax
 parseData:
 	# Determine number of elements
