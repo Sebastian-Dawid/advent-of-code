@@ -64,8 +64,58 @@ printNumber.loop:
 	popq	%rcx
 	ret
 
+# Parse the number in the string at %rsi
+# The number of digits in the number is given in %rdi
+# The parsed number is written to %rax
+parseNumber:
+	pushq	%rbp
+	movq	%rsp,	%rbp
+	subq	$8,	%rsp
+	movq	$10,	(%rsp)
+
+	pushq	%rbx
+	pushq	%rcx
+	pushq	%rdx
+
+	
+	movq	$1,	%rcx
+	movq	$1,	%rax
+parseNumber.initialPower:
+	mulq	-8(%rbp)
+	incq	%rcx
+	cmp	%rcx,	%rdi
+	jne	parseNumber.initialPower
+
+	movq	$0,	%rdx
+	movq	$0,	%rcx
+parseNumber.parse:
+	movzbq	(%rsi),	%rbx
+	subb	$0x30,	%bl
+	imulq	%rax,	%rbx
+	addq	%rbx,	%rcx
+	divq	-8(%rbp)
+	incq	%rsi
+	cmp	$0,	%rax
+	jne	parseNumber.parse
+
+	movq	%rcx,	%rax
+
+	popq	%rdx
+	popq	%rcx
+	popq	%rbx
+
+	leave
+
+	ret
+
 # Parse the data at %rax
+# Return address of sorted list of sums in %rax
 parseData:
+	# Determine number of elements
+	# Alloc buffer
+	# Sum up until empty line or EOF
+	# Add to buffer in the appropriate spot
+	ret
 
 _start:
 	# Pop argc, progname and first command-line input
@@ -85,7 +135,7 @@ _start:
 	syscall
 
 	movq	$SYS_MMAP,	%rax
-	movq	(%rsp, 0x30),	%rsi
+	movq	0x30(%rsp),	%rsi
 	movq	$1,	%rdx
 	movq	$1,	%r10
 	movq	%rdi,	%r8
@@ -99,7 +149,10 @@ _start:
 	movq	%r8,	%rdi
 	syscall
 
-	movq	$123,	%rax
+	movq	(%rsp),	%rsi
+	movq	$4,	%rdi
+	call	parseNumber
+
 	call printNumber
 
         mov $SYS_EXIT,	%rax
