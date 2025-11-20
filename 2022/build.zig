@@ -17,6 +17,7 @@ fn addDay(b: *std.Build, name: []const u8, options: Options) void {
     });
     if (options.assembly) {
         mod.addAssemblyFile(b.path(options.root_file));
+        mod.addAssemblyFile(b.path("src/utils.s"));
     }
 
     const exe = b.addExecutable(.{
