@@ -38,4 +38,11 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .assembly = true,
     });
+
+    addDay(b, "Day01-zig", .{
+        .root_file = "src/day01.zig",
+        .target = target,
+        .optimize = optimize,
+        .assembly = false,
+    });
 }
