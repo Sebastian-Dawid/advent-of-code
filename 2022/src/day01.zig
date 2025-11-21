@@ -39,6 +39,7 @@ pub fn main() !void {
     const filename = args.next() orelse return error.NoInputFile;
 
     const file = std.fs.cwd().openFile(filename, .{ .mode = .read_only }) catch return error.FileNotFound;
+    defer file.close();
     const values = try parse(file, allocator);
     defer allocator.free(values);
 
@@ -49,4 +50,22 @@ pub fn main() !void {
     try stdout.print("Part 1: {}\n", .{ values[0] });
     try stdout.print("Part 2: {}\n", .{ values[0] + values[1] + values[2] });
     try stdout.flush();
+}
+
+test "Part 1" {
+    const file = std.fs.cwd().openFile("../inputs/2022/day01-test", .{ .mode = .read_only }) catch return error.FileNotFound;
+    defer file.close();
+    const allocator = std.testing.allocator;
+    const values = try parse(file, allocator);
+    defer allocator.free(values);
+    try std.testing.expectEqual(24000, values[0]);
+}
+
+test "Part 2" {
+    const file = std.fs.cwd().openFile("../inputs/2022/day01-test", .{ .mode = .read_only }) catch return error.FileNotFound;
+    defer file.close();
+    const allocator = std.testing.allocator;
+    const values = try parse(file, allocator);
+    defer allocator.free(values);
+    try std.testing.expectEqual(45000, values[0] + values[1] + values[2]);
 }
