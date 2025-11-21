@@ -46,12 +46,16 @@ pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    try addDay(b, 1, .{
-        .root_file = "src/day01.s",
-        .target = target,
-        .optimize = optimize,
-        .assembly = true,
-    });
+    var buf: [1024]u8 = undefined;
+    for (1..3) |i| {
+        const filename = try std.fmt.bufPrint(&buf, "src/day{:02}.s", .{ i });
+        try addDay(b, i, .{
+            .root_file = filename,
+            .target = target,
+            .optimize = optimize,
+            .assembly = true,
+        });
+    }
 
     try addDay(b, 1, .{
         .root_file = "src/day01.zig",
