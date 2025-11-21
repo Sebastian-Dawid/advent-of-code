@@ -1,5 +1,8 @@
 .section .data
 
+results:
+	.byte	1, 0, 2
+
 .equ	SYS_READ,	0
 .equ	SYS_WRITE,	1
 .equ	SYS_OPEN,	2
@@ -64,7 +67,7 @@ _start:
 	subq	$144,	%rsp
 	movq	%rax,	%rdi
 	movq	$SYS_FSTAT,	%rax
-	leaq	(%rsp),	%rsi
+	movq	%rsp,	%rsi
 	syscall
 
 	movq	$SYS_MMAP,	%rax
@@ -82,12 +85,60 @@ _start:
 	movq	%r8,	%rdi
 	syscall
 
-	movq	$2,	%rdi
-	movq	$3,	%rsi
-	call	scoreRound
+	popq	%rax
 
-	movq	%rax,	%rdi
-	call	printNumber
+	# part1 = 0
+	movq	$0,	%rbx
+	# part2 = 0
+	movq	$0,	%rdx
+	# i = 0
+	movq	$0,	%rcx
+	# do {
+loop:
+
+	# shape1 = line[0] - 'A' + 1
+	movzbq	(%rax, %rcx),	%rdi
+	subq	$64,	%rdi
+	# shape2 = line[3] - 'A' + 1
+	movzbq	2(%rax, %rcx),	%rsi
+	subq	$87,	%rsi
+	
+	pushq	%rax
+	pushq	%rdi
+	pushq	%rsi
+
+	# part1 += scoreRound(shape1, shape2)
+	call scoreRound
+	addq	%rax,	%rbx
+
+	popq	%rsi
+	movq	$results,	%rax
+	movzbq	-1(%rax, %rsi),	%rsi
+	movq	(%rsp),	%rdi
+	subq	%rsi,	%rdi
+	movq	%rdi,	%rsi
+	cmpq	$1,	%rsi
+	jge	noMod
+	addq	$3,	%rsi
+noMod:
+	popq	%rdi
+
+	call scoreRound
+	addq	%rax,	%rdx
+
+	popq	%rax
+	# i+= 4
+	addq	$4,	%rcx
+	# } while (i < filesize);
+	cmpq	0x30(%rsp),	%rcx
+	jl	loop
+	
+	pushq	%rdx
+	movq	%rbx,	%rdi
+	call printNumber
+
+	popq	%rdi
+	call printNumber
 
 	mov $60, %rax
 	mov $0, %rdi
