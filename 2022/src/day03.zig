@@ -33,25 +33,21 @@ fn part2(file: std.fs.File) !usize {
     var lut: [256]u8 = [_]u8{0} ** 256;
 
     var li: u8 = 0;
-    while (reader.interface.takeDelimiter('\n')) |line| {
+    outer: while (reader.interface.takeDelimiter('\n')) |line| : (li = @rem(li + 1, 3)) {
         if (line) |str| {
             for (str) |c| {
                 lut[@intCast(c)] += @intFromBool(lut[@intCast(c)] == li);
+                if (lut[@intCast(c)] == 3) {
+                    result += switch (c) {
+                        'a'...'z' => c - 'a' + 1,
+                        'A'...'Z' => c - 'A' + 27,
+                        else => unreachable,
+                    };
+                    @memset(&lut, 0);
+                    continue :outer;
+                }
             }
         } else break;
-        li = @rem(li + 1, 3);
-        if (li == 0) {
-            for (lut, 0..) |v, c| {
-                if (v != 3) continue;
-                result += switch (c) {
-                    'a'...'z' => c - 'a' + 1,
-                    'A'...'Z' => c - 'A' + 27,
-                    else => unreachable,
-                };
-                break;
-            }
-            @memset(&lut, 0);
-        }
     } else |err| return err;
     return result;
 }
