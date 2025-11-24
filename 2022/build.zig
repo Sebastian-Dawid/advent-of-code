@@ -57,7 +57,7 @@ pub fn build(b: *std.Build) !void {
         });
     }
 
-    for (1..3) |i| {
+    for (1..4) |i| {
         const filename = try std.fmt.bufPrint(&buf, "src/day{:02}.zig", .{ i });
         try addDay(b, i, .{
             .root_file = filename,
