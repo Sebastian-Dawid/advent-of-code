@@ -57,10 +57,13 @@ pub fn build(b: *std.Build) !void {
         });
     }
 
-    try addDay(b, 1, .{
-        .root_file = "src/day01.zig",
-        .target = target,
-        .optimize = optimize,
-        .assembly = false,
-    });
+    for (1..3) |i| {
+        const filename = try std.fmt.bufPrint(&buf, "src/day{:02}.zig", .{ i });
+        try addDay(b, i, .{
+            .root_file = filename,
+            .target = target,
+            .optimize = optimize,
+            .assembly = false,
+        });
+    }
 }
