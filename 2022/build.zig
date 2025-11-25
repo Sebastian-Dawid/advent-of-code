@@ -42,12 +42,15 @@ fn addDay(b: *std.Build, day: usize, options: Options) !void {
     }
 }
 
+const asm_days = [_]usize{1, 2, 4};
+const zig_days = [_]usize{1, 2, 3};
+
 pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
     var buf: [1024]u8 = undefined;
-    for (1..3) |i| {
+    for (asm_days) |i| {
         const filename = try std.fmt.bufPrint(&buf, "src/day{:02}.s", .{ i });
         try addDay(b, i, .{
             .root_file = filename,
@@ -57,7 +60,7 @@ pub fn build(b: *std.Build) !void {
         });
     }
 
-    for (1..4) |i| {
+    for (zig_days) |i| {
         const filename = try std.fmt.bufPrint(&buf, "src/day{:02}.zig", .{ i });
         try addDay(b, i, .{
             .root_file = filename,
