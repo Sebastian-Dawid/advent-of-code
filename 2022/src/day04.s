@@ -54,7 +54,10 @@ _start:
 	pushq	%rbp
 	movq	%rsp,	%rbp
 	pushq	%rax
-	subq	$40,	%rsp
+	subq	$56,	%rsp
+	
+	movq	$0,	-56(%rbp)
+	movq	$0,	-64(%rbp)
 
 	movq	$0,	%rcx
 loop:
@@ -90,17 +93,60 @@ loop:
 	addq	-16(%rbp),	%rcx
 	movq	%rax,	-48(%rbp)
 
-tmp:
+	# a1 <= b1
 	movq	-40(%rbp),	%rax
 	cmpq	-24(%rbp),	%rax
 	jl	sectionTwo.first
+	je	sections.sameStart
 
+# a1 < b1
 sectionOne.first:
+	# b1 <= a2
+	movq	-40(%rbp),	%rax
+	cmpq	-32(%rbp),	%rax
+	jg	loop.postamble
+
+	incq	-64(%rbp)
+
+	# b2 <= a2
+	movq	-48(%rbp),	%rax
+	cmpq	-32(%rbp),	%rax
+	jg	loop.postamble
+
+	incq	-56(%rbp)
 	jmp	loop.postamble
+
+# b1 < a1
 sectionTwo.first:
+	# a1 <= b2
+	movq	-24(%rbp),	%rax
+	cmpq	-48(%rbp),	%rax
+	jg	loop.postamble
+
+	incq	-64(%rbp)
+
+	# a2 <= b2
+	movq	-32(%rbp),	%rax
+	cmpq	-48(%rbp),	%rax
+	jg	loop.postamble
+
+	incq	-56(%rbp)
+	jmp	loop.postamble
+
+# b1 = a1
+sections.sameStart:
+	incq	-64(%rbp)
+	incq	-56(%rbp)
+
 loop.postamble:
 	cmpq	0x38(%rbp),	%rcx
 	jl	loop
+
+	movq	-56(%rbp),	%rdi
+	call printNumber
+	movq	-64(%rbp),	%rdi
+	call printNumber
+
 	leave
 
 	mov $60, %rax
