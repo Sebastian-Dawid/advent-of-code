@@ -43,7 +43,7 @@ fn addDay(b: *std.Build, day: usize, options: Options) !void {
 }
 
 const asm_days = [_]usize{1, 2, 4};
-const zig_days = [_]usize{1, 2, 3};
+const zig_days = [_]usize{1, 2, 3, 4};
 
 pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
