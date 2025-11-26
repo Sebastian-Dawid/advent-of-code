@@ -2,6 +2,9 @@ const std = @import("std");
 const ResolvedTarget = std.Build.ResolvedTarget;
 const OptimizeMode = std.builtin.OptimizeMode;
 
+const asm_days = [_]usize{1, 2, 4};
+const zig_days = [_]usize{1, 2, 3, 4, 5};
+
 const Options = struct {
     root_file: []const u8,
     target: ResolvedTarget,
@@ -41,9 +44,6 @@ fn addDay(b: *std.Build, day: usize, options: Options) !void {
         test_step.dependOn(&run_exe_test.step);
     }
 }
-
-const asm_days = [_]usize{1, 2, 4};
-const zig_days = [_]usize{1, 2, 3, 4};
 
 pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
