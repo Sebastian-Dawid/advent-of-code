@@ -9,7 +9,7 @@ https://adventofcode.com/2022
 |   3 |  x  |  x  |     |  x  |
 |   4 |  x  |  x  |  x  |  x  |
 |   5 |  x  |  x  |     |  x  |
-|   6 |  x  |  x  |  x  |     |
+|   6 |  x  |  x  |  x  |  x  |
 |   7 |     |     |     |     |
 |   8 |     |     |     |     |
 |   9 |     |     |     |     |
