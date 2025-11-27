@@ -45,9 +45,9 @@ findMarker.memset:
 	movq	$0,	%rcx
 	# do {
 findMarker.preamble:
-	# lut[str[i] - 96] += 1
+	# lut[str[i] - 97] += 1
 	movzbq	(%rdi, %rcx),	%rax
-	incq	-96(%rsp, %rax)
+	incq	-97(%rsp, %rax)
 	# i++
 	incq	%rcx
 	# } while (i < N);
@@ -62,7 +62,7 @@ findMarker.loop:
 	# do {
 findMarker.loop.check:
 	# if (lut[j] >= 2) break;
-	movq	(%rsp, %rbx),	%rax
+	movzbq	(%rsp, %rbx),	%rax
 	cmpq	$2,	%rax
 	jge	findMarker.loop.body
 	# j++
@@ -72,14 +72,14 @@ findMarker.loop.check:
 	jl	findMarker.loop.check
 	jmp	findMarker.postamble
 findMarker.loop.body:
-	# lut[str[i] - 96] += 1
+	# lut[str[i] - 97] += 1
 	movzbq	(%rdi, %rcx),	%rax
-	incq	-96(%rsp, %rax)
+	incq	-97(%rsp, %rax)
 
-	# lut[str[i-N] - 96] -= 1
+	# lut[str[i-N] - 97] -= 1
 	subq	%rdx,	%rcx
 	movzbq	(%rdi, %rcx),	%rax
-	decq	-96(%rsp, %rax)
+	decq	-97(%rsp, %rax)
 	addq	%rdx,	%rcx
 
 	# i++
@@ -136,6 +136,12 @@ _start:
 	movq	%rax,	%rdi
 	call printNumber
 	popq	%rdi
+	movq	0x30(%rsp),	%rsi
+	movq	$14,	%rdx
+	call findMarker
+	
+	movq	%rax,	%rdi
+	call printNumber
 
 	mov $60, %rax
 	mov $0, %rdi
