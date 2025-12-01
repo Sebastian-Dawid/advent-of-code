@@ -2,7 +2,7 @@ const std = @import("std");
 const ResolvedTarget = std.Build.ResolvedTarget;
 const OptimizeMode = std.builtin.OptimizeMode;
 
-const asm_days = [_]usize{1, 2, 4, 6};
+const asm_days = [_]usize{1, 2, 4, 6, 8};
 const zig_days = [_]usize{1, 2, 3, 4, 5, 6, 7};
 
 const Options = struct {
