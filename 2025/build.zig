@@ -2,8 +2,8 @@ const std = @import("std");
 const ResolvedTarget = std.Build.ResolvedTarget;
 const OptimizeMode = std.builtin.OptimizeMode;
 
-const asm_days = [_]usize{1};
-const zig_days = [_]usize{};
+const asm_days = [_]usize{ 1 };
+const zig_days = [_]usize{ 1 };
 
 const Options = struct {
     root_file: []const u8,
