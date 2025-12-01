@@ -11,9 +11,34 @@
 
 .section .text
 
+.globl	modulo
 .globl	alloc
 .globl	printNumber
 .globl	parseNumber
+
+# Compute %rdi mod %rsi
+# The result is stored in %rax
+modulo:
+	pushq	%rdi
+	pushq	%rsi
+	pushq	%rdx
+
+	movq	%rdi,	%rax
+	cqto
+	idivq	%rsi
+
+	cmpq	$0,	%rdx
+	jge	modulo.positive
+
+	addq	%rsi,	%rdx
+
+modulo.positive:
+	movq	%rdx,	%rax
+	popq	%rdx
+	popq	%rsi
+	popq	%rdi
+	ret
+	
 
 # Allocate %rdi bytes.
 # The address of the allocation is returned in %rax.
@@ -115,6 +140,7 @@ printNumber.loop:
 # Parse the number in the string at %rdi
 # The termination character is stored in %rsi
 # A pointer to where to store the number of read characters is stored in %rdx.
+# The stored number of characters includes the termination character.
 # The parsed number is written to %rax
 # If the given string is not a number %rax will be set to ~0
 parseNumber:
