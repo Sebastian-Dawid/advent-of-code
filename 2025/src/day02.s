@@ -19,6 +19,92 @@
 .extern	numberOfDigits
 .extern	power
 
+# The number to check is given in %rdi
+# The same number is returned in %rax if
+# it consists of duplicates otherwise 0
+# will be stored in %rax
+consistsOfDuplicates:
+	pushq	%rbx
+	pushq	%rcx
+	pushq	%rdx
+	pushq	%rdi
+	pushq	%rsi
+	pushq	%rbp
+	movq	%rsp,	%rbp
+
+	# determine digits/2
+	call	numberOfDigits
+	# &digits = %rbp-8
+	pushq	%rax
+	movq	$0,	%rdx
+	movq	$2,	%rcx
+	divq	%rcx
+	# &(digits/2) = %rbp-16
+	pushq	%rax
+
+	# i = 1
+	movq	$1,	%rsi
+
+	# while (i <= digits/2) {
+consistsOfDuplicates.loop:
+	cmpq	-16(%rbp),	%rsi
+	jg	consistsOfDuplicates.loop.foundNothing
+
+	# if (digits % i != 0) continue
+	movq	-8(%rbp),	%rax
+	movq	$0,	%rdx
+	divq	%rsi
+	cmpq	$0,	%rdx
+	jne	consistsOfDuplicates.loop.postamble
+
+	# p = 10^i
+	movq	$10,	%rdi
+	call	power
+	movq	%rax,	%rbx
+
+	# base = N % p
+	# M = N / p
+	movq	16(%rbp),	%rax
+	movq	$0,	%rdx
+	divq	%rbx
+	movq	%rdx,	%rcx
+
+	# while (M > 0) {
+consistsOfDuplicates.loop.inner:
+	cmpq	$0,	%rax
+	jle	consistsOfDuplicates.loop.inner.else
+	# current = M % p
+	# M = M / p
+	movq	$0,	%rdx
+	divq	%rbx
+	# if (current != base) break;
+	cmpq	%rcx,	%rdx
+	jne	consistsOfDuplicates.loop.postamble
+	jmp	consistsOfDuplicates.loop.inner
+	# } else {
+consistsOfDuplicates.loop.inner.else:
+	# return N
+	movq	16(%rbp),	%rax
+	jmp	consistsOfDuplicates.postamble
+	# }
+consistsOfDuplicates.loop.postamble:
+	# i++
+	incq	%rsi
+	jmp	consistsOfDuplicates.loop
+	# }
+
+consistsOfDuplicates.loop.foundNothing:
+	# return 0
+	movq	$0,	%rax
+consistsOfDuplicates.postamble:
+	leave
+	popq	%rsi
+	popq	%rdi
+	popq	%rdx
+	popq	%rcx
+	popq	%rbx
+	ret
+
 _start:
 	# Pop argc, progname and first command-line input
 	popq	%rdi
@@ -74,6 +160,9 @@ _start:
 	# &result = %rbp-48
 	pushq	$0
 
+	# &result2 = %rbp-56
+	pushq	$0
+
 	# do {
 loop:
 	movq	-8(%rbp),	%rdi
@@ -102,6 +191,10 @@ loop:
 loop.inner:
 	cmpq	-40(%rbp),	%rbx
 	jg	loop.postamble
+
+	movq	%rbx,	%rdi
+	call	consistsOfDuplicates
+	addq	%rax,	-56(%rbp)
 
 	# digits = numberOfDigits(current)
 	movq	%rbx,	%rdi
@@ -145,6 +238,8 @@ loop.postamble:
 	jl	loop
 
 	movq	-48(%rbp),	%rdi
+	call	printNumber
+	movq	-56(%rbp),	%rdi
 	call	printNumber
 
 	mov $60, %rax
