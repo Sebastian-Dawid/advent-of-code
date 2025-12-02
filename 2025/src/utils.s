@@ -11,10 +11,68 @@
 
 .section .text
 
+.globl	power
+.globl	numberOfDigits
 .globl	modulo
 .globl	alloc
 .globl	printNumber
 .globl	parseNumber
+
+# Compute %rdi^%rsi
+# Note that %rsi is assumed to be unsigned.
+# The result is stored in %rax
+power:
+	pushq	%rdi
+	pushq	%rsi
+
+	movq	$1,	%rax
+
+power.loop:
+	test	$0x1,	%rsi
+	je	power.loop.noSquare
+	imulq	%rdi
+power.loop.noSquare:
+	shr	$1,	%rsi
+
+	cmpq	$0,	%rsi
+	je	power.postamble
+
+	pushq	%rax
+	movq	%rdi,	%rax
+	mulq	%rdi
+	movq	%rax,	%rdi
+	popq	%rax
+	jmp	power.loop
+
+power.postamble:
+	popq	%rsi
+	popq	%rdi
+	ret
+
+# The number is passed in %rdi
+# The number of digits is stored in %rax
+numberOfDigits:
+	pushq	%rdi
+	pushq	%rcx
+	pushq	%rdx
+
+	movq	%rdi,	%rax
+	movq	$0,	%rdi
+	movq	$10,	%rcx
+
+numberOfDigits.loop:
+	movq	$0,	%rdx
+	divq	%rcx
+	incq	%rdi
+	cmpq	$0,	%rax
+	jg	numberOfDigits.loop
+	
+	movq	%rdi,	%rax
+
+	popq	%rdx
+	popq	%rcx
+	popq	%rdi
+	ret
 
 # Compute %rdi mod %rsi
 # The result is stored in %rax
@@ -156,8 +214,12 @@ parseNumber:
 	movq	$0,	%rcx
 	# while (str[i] != terminator) {
 parseNumber.count.loop:
-	cmpb	(%rdi,	%rcx),	%sil
+	cmpb	(%rdi, %rcx),	%sil
 	je	parseNumber.count.loopEnd
+	cmpb	$0x30,	(%rdi, %rcx)
+	jl	parseNumber.count.loopEnd
+	cmpb	$0x39,	(%rdi, %rcx)
+	jg	parseNumber.count.loopEnd
 	# i++
 	incq	%rcx
 	jmp	parseNumber.count.loop
