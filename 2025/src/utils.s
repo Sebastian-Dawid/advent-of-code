@@ -11,12 +11,29 @@
 
 .section .text
 
+.globl	copy
 .globl	power
 .globl	numberOfDigits
 .globl	modulo
 .globl	alloc
 .globl	printNumber
 .globl	parseNumber
+
+# Copy %rdx, bytes from %rsi to %rdi
+# void copy(dest, source, length)
+copy:
+	pushq	%rax
+	movq	$0,	%rcx
+copy.loop:
+	cmpq	%rdx,	%rcx
+	jge	copy.postamble
+	movb	(%rsi, %rcx),	%al
+	movb	%al,	(%rdi, %rcx)
+	incq	%rcx
+	jmp copy.loop
+copy.postamble:
+	popq	%rax
+	ret
 
 # Compute %rdi^%rsi
 # Note that %rsi is assumed to be unsigned.
