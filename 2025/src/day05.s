@@ -49,6 +49,115 @@ inRanges.postamble:
 	popq	%rsi
 	ret
 
+# The address of the list of ranges is stored in %rdi
+# The number of ragnes is stored in %rsi
+# The total number of elements included in the ranges is returned in %rax
+rangesTotalSize:
+	pushq	%rbx
+	pushq	%rcx
+	pushq	%rdx
+	pushq	%rsi
+	
+	addq	%rsi,	%rsi
+
+	# how many ranges did we merge this iteration
+	pushq	$0
+	# repeat until no ranges were merged
+rangesTotalSize.repeat:
+	movq	$0,	(%rsp)
+	movq	$0,	%rcx
+	# for (i = 0; i < count; ++i) {
+rangesTotalSize.loop:
+	movq	$0,	%rbx
+	# if (lo[i] == hi[i] == 0) continue
+	cmpq	$0,	(%rdi, %rcx, 8)
+	je	rangesTotalSize.loop.postamble
+	cmpq	$0,	8(%rdi, %rcx, 8)
+	je	rangesTotalSize.loop.postamble
+	# for (j = 0; j < count; ++j) {
+rangesTotalSize.loop.inner:
+	# if (i == j) continue
+	cmpq	%rcx,	%rbx
+	je	rangesTotalSize.loop.inner.postamble
+	
+	# rem = 0
+	movq	$0,	%rax
+	# if (lo[i] >= lo[j] && lo[i] <= hi[j]) {
+	movq	8(%rdi, %rbx, 8),	%rdx
+	cmpq	(%rdi, %rcx, 8),	%rdx
+	jl	rangesTotalSize.loop.inner.pt1
+	movq	(%rdi, %rbx, 8),	%rdx
+	cmpq	(%rdi, %rcx, 8),	%rdx
+	jg	rangesTotalSize.loop.inner.pt1
+	# lo[i] = lo[j]
+	movq	%rdx,	(%rdi, %rcx, 8)
+	# rem = true
+	movq	$1,	%rax
+	# }
+
+rangesTotalSize.loop.inner.pt1:
+	# if (hi[i] >= lo[j] && hi[i] <= hi[j]) {
+	movq	(%rdi, %rbx, 8),	%rdx
+	cmpq	8(%rdi, %rcx, 8),	%rdx
+	jg	rangesTotalSize.loop.inner.pt2
+	movq	8(%rdi, %rbx, 8),	%rdx
+	cmpq	8(%rdi, %rcx, 8),	%rdx
+	jl	rangesTotalSize.loop.inner.pt2
+	# hi[i] = hi[j]
+	movq	%rdx,	8(%rdi, %rcx, 8)
+	# rem = true
+	movq	$1,	%rax
+	# }
+
+rangesTotalSize.loop.inner.pt2:
+	# if (rem) lo[j] = hi[j] = 0
+	cmpq	$0,	%rax
+	je	rangesTotalSize.loop.inner.postamble
+	
+	incq	(%rsp)
+	movq	$0,	(%rdi, %rbx, 8)
+	movq	$0,	8(%rdi, %rbx, 8)
+
+rangesTotalSize.loop.inner.postamble:
+	addq	$2,	%rbx
+	cmpq	%rsi,	%rbx
+	jl	rangesTotalSize.loop.inner
+	# }
+rangesTotalSize.loop.postamble:
+	addq	$2,	%rcx
+	cmpq	%rsi,	%rcx
+	jl	rangesTotalSize.loop
+	# }
+	cmpq	$0,	(%rsp)
+	jne	rangesTotalSize.repeat
+	
+	movq	$0,	%rax
+	movq	$0,	%rcx
+	# for (i = 0; i < count; ++i) {
+rangesTotalSize.count:
+	# if (lo[i] == hi[i] == 0) continue
+	cmpq	$0,	(%rdi, %rcx, 8)
+	je	rangesTotalSize.count.postamble
+	cmpq	$0,	8(%rdi, %rcx, 8)
+	je	rangesTotalSize.count.postamble
+rangesTotalSize.count.body:
+	# result += hi[i] - lo[i] + 1
+	addq	8(%rdi, %rcx, 8),	%rax
+	subq	(%rdi, %rcx, 8),	%rax
+	incq	%rax
+rangesTotalSize.count.postamble:
+	addq	$2,	%rcx
+	cmpq	%rsi,	%rcx
+	jl	rangesTotalSize.count
+	# }
+
+	addq	$8,	%rsp
+	popq	%rsi
+	popq	%rdx
+	popq	%rcx
+	popq	%rbx
+	ret
+
 _start:
 	# Pop argc, progname and first command-line input
 	popq	%rdi
@@ -159,6 +268,13 @@ checkRanges:
 	# } while (i < filesize);
 
 	movq	-40(%rbp),	%rdi
+	call	printNumber
+
+	movq	%rsp,	%rdi
+	movq	-32(%rbp),	%rsi
+	call	rangesTotalSize
+
+	movq	%rax,	%rdi
 	call	printNumber
 
 	mov $60, %rax
