@@ -216,6 +216,7 @@ printNumber.loop:
 # The termination character is stored in %rsi
 # A pointer to where to store the number of read characters is stored in %rdx.
 # The stored number of characters includes the termination character.
+# Leading spaces (0x20) are ignored.
 # The parsed number is written to %rax
 # If the given string is not a number %rax will be set to ~0
 parseNumber:
@@ -229,6 +230,16 @@ parseNumber:
 	
 	# i = 0
 	movq	$0,	%rcx
+	# chars = 0
+	movq	$0,	%rax
+	# while (str[i] == ' ') {
+parseNumber.leadingWhitespace:
+	cmpb	$0x20,	(%rdi, %rcx)
+	jne	parseNumber.count.loop
+	# i++
+	incq	%rcx
+	jmp	parseNumber.leadingWhitespace
+	# }
 	# while (str[i] != terminator) {
 parseNumber.count.loop:
 	cmpb	(%rdi, %rcx),	%sil
@@ -239,6 +250,7 @@ parseNumber.count.loop:
 	jg	parseNumber.count.loopEnd
 	# i++
 	incq	%rcx
+	incq	%rax
 	jmp	parseNumber.count.loop
 	# }
 parseNumber.count.loopEnd:
@@ -246,10 +258,11 @@ parseNumber.count.loopEnd:
 	leaq	1(%rcx),	%rbx
 	movq	%rbx,	(%rdx)
 
-	# if (i == 0) {
-	cmp	$0,	%rcx
+	# if (chars == 0) {
+	cmp	$0,	%rax
 	jne	parseNumber.count.valid
 	# return ~0
+	movq	$0,	%rcx
 	notq	%rcx
 	jmp	parseNumber.postamble
 	# }
@@ -266,6 +279,8 @@ parseNumber.parse:
 	decq	%rsi
 	# val = str[i] - 0x30
 	movzbq	(%rdi, %rsi),	%rbx
+	cmpb	$0x20,	%bl
+	je	parseNumber.postamble
 	subb	$0x30,	%bl
 	# result += digit * val
 	imulq	%rax,	%rbx
