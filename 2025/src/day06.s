@@ -316,6 +316,94 @@ loop.pt1.mul:
 	movq	-64(%rbp),	%rdi
 	call	printNumber
 
+	# &pt2 = %rbp-72
+	pushq	$0
+	# &local = %rbp-80
+	pushq	$0
+
+	movq	-8(%rbp),	%rdi
+	movq	56(%rbp),	%r10
+	subq	%r12,	%r10
+
+	# k = 0
+	movq	$0,	%r14
+	# do {
+loop.pt2:
+	# op = file[i]
+	movzbq	(%rdi, %r10),	%r11
+
+	# local = (op == '*') ? 1 : 0
+	cmpq	$42,	%r11
+	je	loop.pt2.mul
+	movq	$0,	-80(%rbp)
+	jmp	loop.pt2.inner
+loop.pt2.mul:
+	movq	$1,	-80(%rbp)
+
+	# do {
+loop.pt2.inner:
+	# push chars onto stack top to bottom
+	leaq	-2(%r8),	%r13
+	decq	%rsp
+	movb	$0,	(%rsp)
+loop.pt2.inner.chars:
+	# pushb file[j * linelen + k]
+	movq	%r12,	%rax
+	mulq	%r13
+	addq	%r14,	%rax
+	decq	%rsp
+	movzbq	(%rdi, %rax),	%rdx
+	movb	%dl,	(%rsp)
+
+	decq	%r13
+	cmpq	$0,	%r13
+	jge	loop.pt2.inner.chars
+
+	# n = parseNumber(&str, ' ', &count)
+	movq	%rsp,	%rdi
+	movq	$0,	%rsi
+	leaq	-56(%rbp),	%rdx
+	call	parseNumber
+
+	movq	-8(%rbp),	%rdi
+
+	leaq	(%r8),	%r13
+	addq	%r13,	%rsp
+
+	# if (n == -1) break
+	cmpq	$-1,	%rax
+	je	loop.pt2.inner.after
+	# apply operation
+	# if (op == '+') {
+	cmpq	$42,	%r11
+	je	loop.pt2.inner.mul
+	addq	%rax,	-80(%rbp)
+	jmp	loop.pt2.inner.postamble
+	# } else {
+loop.pt2.inner.mul:
+	movq	-80(%rbp),	%rcx
+	mulq	%rcx
+	movq	%rax,	-80(%rbp)
+	# }
+loop.pt2.inner.postamble:
+	incq	%r14
+	incq	%r10
+	jmp	loop.pt2.inner
+	# } while (true)
+loop.pt2.inner.after:
+	# pt2 += local
+	movq	-80(%rbp),	%rax
+	addq	%rax,	-72(%rbp)
+
+	incq	%r14
+	incq	%r10
+	cmpq	56(%rbp),	%r10
+	jl	loop.pt2
+	# } while (i < filesize);
+	
+	movq	-72(%rbp),	%rdi
+	call	printNumber
+
 	movq	$60,	%rax
 	movq	$0,	%rdi
 	syscall
