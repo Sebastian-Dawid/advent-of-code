@@ -20,10 +20,10 @@
 # The ASCII code of the object is passed in %rdi
 # The ID of the resulting element is returned in %rax
 # nothing (.)  = 0
+# splitter (^) = -1
 # beam (S)     = 1
-# splitter (^) = 2
 parseObject:
-	movq	$2,	%rax
+	movq	$-1,	%rax
 	cmpq	$94,	%rdi
 	je	parseObject.postamble
 	movq	$1,	%rax
@@ -59,7 +59,7 @@ parse.loop.inner:
 	mulq	%rcx
 	addq	-16(%rbp),	%rax
 	movq	16(%rdi),	%rcx
-	leaq	(%rcx, %rax),	%rcx
+	leaq	(%rcx, %rax, 8),	%rcx
 	pushq	%rcx
 
 	# map[i*width + j] = parseObject(file[i*(width+1) + j])
@@ -69,7 +69,7 @@ parse.loop.inner:
 	call	parseObject
 
 	popq	%rdi
-	movb	%al,	(%rdi)
+	movq	%rax,	(%rdi)
 
 	incq	-16(%rbp)
 	movq	16(%rbp),	%rdi
@@ -139,7 +139,7 @@ findLineWidth:
 	# struct {
 	# u64 width; (%rbp-32)
 	# u64 height; (%rbp-24)
-	# u8* map; (%rbp-16)
+	# u64* map; (%rbp-16)
 	# }
 	subq	$24,	%rsp
 	movq	%rcx,	-32(%rbp)
@@ -153,6 +153,8 @@ findLineWidth:
 
 	# allocate map
 	movq	-32(%rbp),	%rcx
+	mulq	%rcx
+	movq	$8,	%rcx
 	mulq	%rcx
 	movq	%rax,	%rdi
 	call	alloc
@@ -178,32 +180,34 @@ simulate.inner:
 	movq	-32(%rbp),	%rax
 	mulq	%r12
 	addq	%r13,	%rax
-	addq	-16(%rbp),	%rax
-	movq	%rax,	%rdi
+	movq	-16(%rbp),	%rdi
+	movq	%rax,	%rcx
 	# current = map[i*width + j]
-	movzbq	(%rdi),	%rax
+	movq	(%rdi, %rcx, 8),	%rax
 	# above = map[(i-1)*width + j]
-	subq	-32(%rbp),	%rdi
-	movzbq	(%rdi),	%rbx
-	addq	-32(%rbp),	%rdi
+	subq	-32(%rbp),	%rcx
+	movq	(%rdi, %rcx, 8),	%rbx
+	addq	-32(%rbp),	%rcx
 
 	# if (above != beam) continue
-	cmpq	$1,	%rbx
-	jne	simulate.inner.postamble
+	cmpq	$0,	%rbx
+	je	simulate.inner.postamble
+	cmpq	$-1,	%rbx
+	je	simulate.inner.postamble
 
 	# if (current == splitter) {
-	cmpq	$2,	%rax
+	cmpq	$-1,	%rax
 	jne	simulate.inner.propagate
 	# map[i*width + j - 1] = beam
-	movb	$1,	-1(%rdi)
+	addq	%rbx,	-8(%rdi, %rcx, 8)
 	# map[i*width + j + 1] = beam
-	movb	$1,	1(%rdi)
+	addq	%rbx,	8(%rdi, %rcx, 8)
 	incq	-40(%rbp)
 	jmp	simulate.inner.postamble
 	# }
 simulate.inner.propagate:
 	# map[i*width + j] = beam
-	movb	$1,	(%rdi)
+	addq	%rbx,	(%rdi, %rcx, 8)
 simulate.inner.postamble:
 	incq	%r13
 	cmpq	-32(%rbp),	%r13
@@ -216,6 +220,27 @@ simulate.inner.postamble:
 	# } while (i < height)
 
 	movq	-40(%rbp),	%rdi
+	call	printNumber
+
+	decq	%r12
+	movq	-32(%rbp),	%rax
+	mulq	%r12
+	movq	$8,	%rcx
+	mulq	%rcx
+	movq	-16(%rbp),	%rdi
+	addq	%rax,	%rdi
+
+	# pt2 = 0
+	movq	$0,	%rax
+	# for (i = 0; i < width; ++i)
+	movq	$0,	%r13
+sumLastRow:
+	addq	(%rdi, %r13, 8),	%rax
+	incq	%r13
+	cmpq	-32(%rbp),	%r13
+	jl	sumLastRow
+
+	movq	%rax,	%rdi
 	call	printNumber
 
 	mov	$60,	%rax
