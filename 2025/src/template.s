@@ -44,13 +44,17 @@ _start:
 	movq	$0,	%r9
 	syscall
 
-	# Save pointer to file contents on the stack
+	pushq	%rbp
+	movq	%rsp,	%rbp
+
+	# &filesize = %rbp+56
+	# &file = %rbp-8
 	pushq	%rax
 
 	movq	$SYS_CLOSE,	%rax
 	movq	%r8,	%rdi
 	syscall
 
-	mov $60, %rax
-	mov $0, %rdi
+	mov	$60,	%rax
+	mov	$0,	%rdi
 	syscall
