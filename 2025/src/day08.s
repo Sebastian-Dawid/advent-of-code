@@ -323,9 +323,17 @@ connectClosest.find.inner.after:
 	movq	-24(%rbp),	%r13
 	leaq	(%rdx, %r13, 8), %r13
 	shl	$2,	%r13
-	movq	24(%rdi, %r13),	%rax
-	movq	%rax,	-32(%rbp)
+	movq	24(%rdi, %r13),	%r14
+	movq	%r14,	-32(%rbp)
 
+	movq	(%rdi, %r13),	%rax
+	movq	-16(%rbp),	%r13
+	leaq	(%rdx, %r13, 8), %r13
+	shl	$2,	%r13
+	movq	(%rdi, %r13),	%rcx
+	mulq	%rcx
+	pushq	%rax
+	movq	%r14,	%rax
 	# if (old == new) return
 	cmpq	%rax,	-40(%rbp)
 	je	connectClosest.postamble
@@ -362,6 +370,7 @@ connectClosest.updateCircuits.postamble:
 	jl	connectClosest.updateCircuits
 	# }
 connectClosest.postamble:
+	popq	%rax
 	leave
 	popq	%rdi
 	popq	%rdx
@@ -449,7 +458,7 @@ _start:
 	movq	%r8,	%rdi
 	syscall
 
-	subq	$24,	%rsp
+	subq	$32,	%rsp
 	movq	%rsp,	%rdi
 	movq	-8(%rbp),	%rsi
 	movq	56(%rbp),	%rdx
@@ -463,7 +472,7 @@ loop:
 	cmpq	%r15,	%r14
 	jl	loop
 
-	# &result = %rbp-40
+	# &result = %rbp-48
 	pushq	$1
 
 	movq	24(%rdi),	%rsi
@@ -473,24 +482,49 @@ loop:
 
 	pushq	%rax
 	movslq	(%rdi, %rax, 4),	%rax
-	movq	-40(%rbp),	%rcx
+	movq	-48(%rbp),	%rcx
 	mulq	%rcx
-	movq	%rax,	-40(%rbp)
+	movq	%rax,	-48(%rbp)
 	popq	%rdx
 	call	findMax
 
 	pushq	%rax
 	movslq	(%rdi, %rax, 4),	%rax
-	movq	-40(%rbp),	%rcx
+	movq	-48(%rbp),	%rcx
 	mulq	%rcx
-	movq	%rax,	-40(%rbp)
+	movq	%rax,	-48(%rbp)
 	popq	%rdx
 	call	findMax
 
-	movq	-40(%rbp),	%rcx
+	movq	-48(%rbp),	%rcx
 	movslq	(%rdi, %rax, 4),	%rax
 	mulq	%rcx
+
 	movq	%rax,	%rdi
+	call	printNumber
+
+	# &pt2 = %rbp-56
+	pushq	$0
+
+loop2:
+	leaq	-40(%rbp),	%rdi
+	call	connectClosest
+	movq	%rax,	-56(%rbp)
+	movq	$0,	%rcx
+	movq	$0,	%r13
+countCircuits:
+	movq	16(%rdi),	%rsi
+	cmpl	$0,	(%rsi, %r13, 4)
+	je	countCircuits.postamble
+	incq	%rcx
+countCircuits.postamble:
+	incq	%r13
+	cmpq	24(%rdi),	%r13
+	jl	countCircuits
+	cmpq	$1,	%rcx
+	jne	loop2
+
+	movq	-56(%rbp),	%rdi
 	call	printNumber
 
 	mov	$SYS_EXIT,	%rax
