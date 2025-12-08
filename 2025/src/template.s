@@ -55,6 +55,6 @@ _start:
 	movq	%r8,	%rdi
 	syscall
 
-	mov	$60,	%rax
+	mov	$SYS_EXIT,	%rax
 	mov	$0,	%rdi
 	syscall
