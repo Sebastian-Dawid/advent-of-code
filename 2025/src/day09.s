@@ -746,7 +746,7 @@ _start:
 
 	# compute 2d prefix sum (but ignore the 2s in the map)
 	movq	%r15,	%rdi
-	shl	$2,	%rdi
+	shl	$3,	%rdi
 	call	alloc
 	addq	$8,	%rax
 	# &prefix = %rbp-80
@@ -773,19 +773,83 @@ loop.inner:
 	movq	-24(%rbp),	%rsi
 	leaq	(%rsi, %r13),	%rdi
 	leaq	(%rsi, %r14),	%rsi
+	call	rectangle
+	pushq	%rax
+
+	movq	-64(%rbp),	%rdi
+	# i1 = compressed.list[i].x
+	movq	8(%rdi, %r13),	%r8
+	# j1 = compressed.list[i].y
+	movq	(%rdi, %r13),	%r9
+	# i2 = compressed.list[j].x
+	movq	8(%rdi, %r14),	%r10
+	# j2 = compressed.list[j].y
+	movq	(%rdi, %r14),	%r11
 	shr	$4,	%r13
 	shr	$4,	%r14
-	call	rectangle
+	# if (i1 < i2) swap(i1, i2)
+	cmpq	%r10,	%r8
+	jge	loop.inner.i1gei2
+	xor	%r8,	%r10
+	xor	%r10,	%r8
+	xor	%r8,	%r10
+loop.inner.i1gei2:
+	# if (j1 < j2) swap(j1, j2)
+	cmpq	%r11,	%r9
+	jge	loop.inner.j1gej2
+	xor	%r9,	%r11
+	xor	%r11,	%r9
+	xor	%r9,	%r11
+loop.inner.j1gej2:
+	# i2--
+	# j2--
+	decq	%r10
+	decq	%r11
 
-	# i1 = compressed.list[i].x
-	# j1 = compressed.list[i].y
-	# i2 = compressed.list[j].x
-	# j2 = compressed.list[j].y
+	movq	-48(%rbp),	%rcx
+	movq	-80(%rbp),	%rdi
+	# i1 *= width
+	movq	%r8,	%rax
+	mulq	%rcx
+	movq	%rax,	%rdx
+	leaq	(%rdi, %rdx, 8), %rdx
+
+	# i2 *= width
+	movq	%r10,	%rax
+	pushq	%rdx
+	mulq	%rcx
+	popq	%rdx
+	movq	%rax,	%rcx
+	leaq	(%rdi, %rcx, 8), %rcx
+
 	# p = prefix[i1*width + j1] - prefix[i2*width + j1] - prefix[i1*width + j2] + prefix[i2*width + j2]
+	movq	(%rdx, %r9, 8), %rax
+	cmpq	$0,	%r10
+	jl	loop.inner.prefix.1
+	subq	(%rcx, %r9, 8), %rax
+loop.inner.prefix.1:
+	cmpq	$0,	%r11
+	jl	loop.inner.prefix.2
+	subq	(%rdx, %r11, 8), %rax
+loop.inner.prefix.2:
+	cmpq	$0,	%r10
+	jl	loop.inner.prefix.after
+	cmpq	$0,	%r11
+	jl	loop.inner.prefix.after
+	addq	(%rcx, %r11, 8), %rax
+loop.inner.prefix.after:
 	# if (p == 0) {
+	cmpq	$0,	%rax
+	jne	loop.inner.noInsidePolygon
 	# pt2 = max(pt2, area)
+	movq	(%rsp),		%rbx
+	movq	-40(%rbp),	%rax
+	cmpq	%rax,	%rbx
+	cmovaq	%rbx,	%rax
+	movq	%rax,	-40(%rbp)
 	# }
-
+loop.inner.noInsidePolygon:
+	popq	%rax
 	# if (area <= pt1) continue
 	cmpq	-32(%rbp),	%rax
 	jle	loop.inner.postamble
@@ -802,6 +866,9 @@ loop.postamble:
 	# }
 
 	movq	-32(%rbp),	%rdi
+	call	printNumber
+
+	movq	-40(%rbp),	%rdi
 	call	printNumber
 	
 	mov	$SYS_EXIT,	%rax
