@@ -560,6 +560,111 @@ floodFill.loop.postamble:
 	popq	%r8
 	ret
 
+# void computePrefixMatrix(u64* prefix, u8* map, u64 width, u64 height)
+computePrefixMatrix:
+	pushq	%rdi
+	pushq	%rsi
+	pushq	%rdx
+	pushq	%rcx
+	pushq	%r8
+	pushq	%r9
+	pushq	%r10
+	pushq	%r11
+	pushq	%r12
+	pushq	%r13
+	pushq	%r14
+	pushq	%r15
+
+	# prefix[0] = map[0] & 0x3
+	movzbq	(%rsi),	%rax
+	andq	$0x3,	%rax
+	movq	%rax,	(%rdi)
+
+	# for (i = 1; i < height; ++i) {
+	movq	$1,	%r8
+computePrefixMatrix.initHeight:
+	# prefix[i*width] = map[i*width] & 0x3 + prefix[(i-1)*width]
+	movq	%r8,	%rax
+	pushq	%rdx
+	mulq	%rdx
+	popq	%rdx
+	movzbq	(%rsi, %rax),	%r9
+	andq	$0x1,	%r9
+
+	# i*width
+	movq	%rax,	%r10
+	# (i-1)*width
+	subq	%rdx,	%rax
+
+	addq	(%rdi, %rax, 8),	%r9
+	movq	%r9,	(%rdi, %r10, 8)
+
+	incq	%r8
+	cmpq	%rcx,	%r8
+	jl	computePrefixMatrix.initHeight
+	# }
+
+	# for (i = 1; i < width; ++i) {
+	movq	$1,	%r8
+computePrefixMatrix.initWidth:
+	# prefix[i] = map[i] & 0x3 + prefix[i-1]
+	movzbq	(%rsi, %r8),	%r9
+	andq	$0x1,	%r9
+
+	addq	-8(%rdi, %r8, 8),	%r9
+	movq	%r9,	(%rdi, %r8, 8)
+
+	incq	%r8
+	cmpq	%rdx,	%r8
+	jl	computePrefixMatrix.initWidth
+	# }
+
+	# for (i = 1; i < height; ++i) {
+	movq	$1,	%r8
+computePrefixMatrix.loop:
+	# for (j = 1; j < width; ++j) {
+	movq	$1,	%r9
+computePrefixMatrix.loop.inner:
+	# v = map[i * width + j] & 0x3
+	movq	%r8,	%rax
+	pushq	%rdx
+	mulq	%rdx
+	popq	%rdx
+	addq	%r9,	%rax
+	movq	%rax,	%r11
+	movzbq	(%rsi, %rax),	%r10
+	andq	$0x1,	%r10
+
+	# prefix[i * width + j] = v + prefix[(i-1)*width + j] + prefix[i*width + j - 1] - prefix[(i-1)*width + j - 1]
+	subq	%rdx,	%r11
+	addq	(%rdi, %r11, 8),	%r10
+	addq	-8(%rdi, %rax, 8),	%r10
+	subq	-8(%rdi, %r11, 8),	%r10
+	movq	%r10,	(%rdi, %rax, 8)
+
+	incq	%r9
+	cmpq	%rdx,	%r9
+	jl	computePrefixMatrix.loop.inner
+	# }
+	incq	%r8
+	cmpq	%rcx,	%r8
+	jl	computePrefixMatrix.loop
+	# }
+
+	popq	%r15
+	popq	%r14
+	popq	%r13
+	popq	%r12
+	popq	%r11
+	popq	%r10
+	popq	%r9
+	popq	%r8
+	popq	%rcx
+	popq	%rdx
+	popq	%rsi
+	popq	%rdi
+	ret
+
 _start:
 	# Pop argc, progname and first command-line input
 	popq	%rdi
@@ -638,7 +743,19 @@ _start:
 	divq	%rsi
 	movq	%rax,	%rdx
 	call	floodFill
+
 	# compute 2d prefix sum (but ignore the 2s in the map)
+	movq	%r15,	%rdi
+	shl	$2,	%rdi
+	call	alloc
+	addq	$8,	%rax
+	# &prefix = %rbp-80
+	pushq	%rax
+	movq	-80(%rbp),	%rdi
+	movq	-72(%rbp),	%rsi
+	movq	%rdx,	%rcx
+	movq	-48(%rbp),	%rdx
+	call	computePrefixMatrix
 	# in the loop check if a given rectangle includes invalid points
 	# maybe use a prefix matrix
 
@@ -659,6 +776,16 @@ loop.inner:
 	shr	$4,	%r13
 	shr	$4,	%r14
 	call	rectangle
+
+	# i1 = compressed.list[i].x
+	# j1 = compressed.list[i].y
+	# i2 = compressed.list[j].x
+	# j2 = compressed.list[j].y
+	# p = prefix[i1*width + j1] - prefix[i2*width + j1] - prefix[i1*width + j2] + prefix[i2*width + j2]
+	# if (p == 0) {
+	# pt2 = max(pt2, area)
+	# }
+
 	# if (area <= pt1) continue
 	cmpq	-32(%rbp),	%rax
 	jle	loop.inner.postamble
