@@ -2,7 +2,7 @@ const std = @import("std");
 const ResolvedTarget = std.Build.ResolvedTarget;
 const OptimizeMode = std.builtin.OptimizeMode;
 
-const asm_days = [_]usize{ 1, 2, 3, 4, 5, 6, 7, 8, 9 };
+const asm_days = [_]usize{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 };
 const zig_days = [_]usize{ 1 };
 
 const Options = struct {
@@ -22,6 +22,7 @@ fn addDay(b: *std.Build, day: usize, options: Options) !void {
     if (options.assembly) {
         mod.addAssemblyFile(b.path(options.root_file));
         mod.addAssemblyFile(b.path("src/utils.s"));
+        mod.addAssemblyFile(b.path("src/fifo.s"));
     }
 
     var buf: [1024]u8 = undefined;
