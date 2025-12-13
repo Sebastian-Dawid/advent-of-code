@@ -11,6 +11,11 @@
 
 .equ	STDOUT,	1
 
+.equ	ABS_CONSTANT_F64,	0x7FFFFFFFFFFFFFFF
+
+test_matrix:
+	.quad	0,0,0,0,1,1,3, 0,1,0,0,0,1,5, 0,0,1,1,1,0,4, 1,1,0,1,0,0,7, 0,0,0,0
+
 .section .text
 
 .globl _start
@@ -262,6 +267,385 @@ machineBFS.postamble:
 	popq	%r14
 	ret
 
+# struct LinearSystem {
+# f64* equations (offset  0)
+# u64 width      (offset  8)
+# u64 height     (offset 16)
+# } (size = 24 bytes)
+# Assume the size of the allocation to be a multiple of 8 elements
+
+# struct FreeVariables {
+# u32 count     (offset 0)
+# u32 variables (offset 4)
+# } (size = 8 bytes)
+# Note that FreeVariables.variables is treated as a bitset that marks which of the variables are free
+
+# void linearSystemConvertToDouble(LinearSystem* system)
+# Convert a linear system with an integer matrix to a linear system with a double matrix.
+# Note that this operation is performed in-place
+linearSystemConvertToDouble:
+	pushq	%rdi
+	pushq	%rbp
+	movq	%rsp,	%rbp
+
+	# &size = %rbp-8
+	pushq	$0
+
+	movq	8(%rdi),	%rax
+	movq	16(%rdi),	%rcx
+	mulq	%rcx
+	movq	%rax,	-8(%rbp)
+
+	movq	(%rdi),	%rdi
+
+	movq	$0,	%rcx
+linearSystemConvertToDouble.loop:
+	vmovdqu64	(%rdi, %rcx, 8),	%zmm0
+	vcvtqq2pd	%zmm0,	%zmm1
+	vmovupd	%zmm1,	(%rdi, %rcx, 8)
+
+	addq	$8,	%rcx
+	cmpq	-8(%rbp),	%rcx
+	jl	linearSystemConvertToDouble.loop
+
+	leave
+	popq	%rdi
+	ret
+
+# f64 f64abs(f64 x)
+# The value of x if passed in %[x|y|z]mm0
+# The absolute value is returned in %[x|y|z]mm0
+f64abs:
+	movq	$ABS_CONSTANT_F64,	%rax
+	vpbroadcastq	%rax,	%zmm1
+	vpandq	%zmm0,	%zmm1,	%zmm0
+	ret
+
+# FreeVariables gaussianElimination(LinearSystem* system)
+# Perfom gaussian elimination for the first min(system.height, system.width-1) rows of the system.
+# The address of system is passed in %rdi
+gaussianElimination:
+	pushq	%r8
+	pushq	%r9
+	pushq	%r10
+	pushq	%r11
+	pushq	%r12
+	pushq	%r13
+	pushq	%r14
+	pushq	%r15
+	pushq	%rdi
+	pushq	%rbp
+	movq	%rsp,	%rbp
+
+	# rows = min(system.width-1, system.height)
+	movq	8(%rdi),	%r14
+	leaq	-1(%r14),	%r14
+	movq	16(%rdi),	%r15
+	cmpq	%r15,	%r14
+	cmovlq	%r14,	%r15
+
+	# &pivot = %rbp-8
+	pushq	$0
+	# &scalar = %rbp-16
+	pushq	$0
+	
+	# &i*width = %rbp-24
+	pushq	$0
+
+	# &i = %rbp-32
+	pushq	$0
+	# &j = %rbp-40
+	pushq	$0
+	# &cmp = %rbp-48
+	pushq	$0
+
+	# &freeVariables = %rbp-56
+	pushq	$0
+
+	# for (i = 0; i < rows; ++i) {
+gaussianElimination.loop:
+	movq	8(%rbp),	%rdi
+	movq	-32(%rbp),	%rax
+	movq	8(%rdi),	%rcx
+	mulq	%rcx
+	movq	%rax,	-24(%rbp)
+
+	# find pivot
+	# scalar = f64abs(system.equations[i*system.width + i])
+	movq	(%rdi),	%rdi
+	movq	-32(%rbp),	%rcx
+	addq	-24(%rbp),	%rcx
+	vpbroadcastq	(%rdi, %rcx, 8),	%xmm0
+	call	f64abs
+	movq	%xmm0,	-16(%rbp)
+	# pivot = i
+	movq	-32(%rbp),	%rax
+	movq	%rax,	-8(%rbp)
+
+	# for (j = i+1; j < system.height; ++j) {
+	movq	-32(%rbp),	%rcx
+	incq	%rcx
+	movq	%rcx,	-40(%rbp)
+gaussianElimination.loop.findPivot:
+	movq	8(%rbp),	%rdi
+	movq	8(%rdi),	%rax
+	movq	-40(%rbp),	%rcx
+	mulq	%rcx
+	addq	-32(%rbp),	%rax
+
+	# if (scalar >= f64abs(system.equations[j*system.width + i])) continue
+	movq	(%rdi),	%rdi
+	vpbroadcastq	(%rdi, %rax, 8),	%xmm0
+	call	f64abs
+	movq	-16(%rbp),	%xmm1
+	vcmplesd	%xmm1,	%xmm0,	%xmm2
+	movq	%xmm2,	%rax
+	cmpq	$-1,	%rax
+	je	gaussianElimination.loop.findPivot.postamble
+	# pivot = j
+	movq	-40(%rbp),	%rax
+	movq	%rax,	-8(%rbp)
+	# scalar = f64abs(system.equations[j*system.width + i])
+	movq	%xmm0,	-16(%rbp)
+gaussianElimination.loop.findPivot.postamble:
+	incq	-40(%rbp)
+	movq	8(%rbp),	%rdi
+	movq	16(%rdi),	%rcx
+	cmpq	%rcx,	-40(%rbp)
+	jl	gaussianElimination.loop.findPivot
+	# }
+
+	# swap rows i and pivot
+	# pivot*system.width
+	movq	-8(%rbp),	%rax
+	movq	8(%rdi),	%rcx
+	mulq	%rcx
+	# for (j = 0; j < system.width; ++j) {
+	movq	$0,	%rcx
+gaussianElimination.loop.swap:
+	movq	8(%rbp),	%rdi
+	movq	(%rdi),	%rdi
+	# swap(eq[pivot*system.width + j], eq[i*system.width + j])
+	leaq	(%rax, %rcx),	%r8
+	movq	-24(%rbp),	%r9
+	addq	%rcx,	%r9
+	movq	(%rdi, %r8, 8),	%r10
+	xorq	(%rdi, %r9, 8),	%r10
+	xorq	%r10,	(%rdi, %r9, 8)
+	xorq	(%rdi, %r9, 8),	%r10
+	movq	%r10,	(%rdi, %r8, 8)
+
+	incq	%rcx
+	movq	8(%rbp),	%rdi
+	cmpq	8(%rdi),	%rcx
+	jl	gaussianElimination.loop.swap
+	# }
+
+	movq	(%rdi),	%rdi
+	# scalar = system.equations[i*system.width + i]
+	movq	-24(%rbp),	%rcx
+	addq	-32(%rbp),	%rcx
+	movq	(%rdi, %rcx, 8),	%rax
+	movq	%rax,	-16(%rbp)
+
+	# if (scalar == 0) {
+	pxor	%xmm0,	%xmm0
+	vcmpeqsd	-16(%rbp),	%xmm0,	%xmm1
+	movq	%xmm1,	%rax
+	cmpq	$-1,	%rax
+	jne	gaussianElimination.loop.validRow
+	# for (j = i+1; j < system.width-1; ++j) {
+	movq	-32(%rbp),	%r8
+	incq	%r8
+gaussianElimination.loop.findValidColumn:
+	movq	-24(%rbp),	%rax
+	addq	%r8,	%rax
+	movq	8(%rbp),	%rdi
+	movq	(%rdi),	%rdi
+	# if (!system.equations[i*system.width + j]) continue
+	cmpq	$0,	(%rdi, %rax, 8)
+	je	gaussianElimination.loop.findValidColumn.postamble
+
+	# for (k = 0; k < system.height; ++k) {
+	movq	$0,	%r9
+	movq	8(%rbp),	%rdi
+gaussianElimination.loop.findValidColumn.swap:
+	movq	8(%rdi),	%rax
+	mulq	%r9
+	movq	(%rdi),	%rdi
+
+	movq	-32(%rbp),	%r10
+	addq	%rax,	%r10
+	movq	%r8,	%r11
+	addq	%rax,	%r11
+
+	# swap(eq[k*width + i], eq[k*width + j])
+	movq	(%rdi, %r10, 8),	%r12
+	xorq	(%rdi, %r11, 8),	%r12
+	xorq	%r12,	(%rdi, %r11, 8)
+	xorq	(%rdi, %r11, 8),	%r12
+	movq	%r12,	(%rdi, %r10, 8)
+
+	incq	%r9
+	movq	8(%rbp),	%rdi
+	cmpq	16(%rdi),	%r9
+	jl	gaussianElimination.loop.findValidColumn.swap
+	# }
+	# break
+	jmp	gaussianElimination.loop.validRow
+
+gaussianElimination.loop.findValidColumn.postamble:
+	incq	%r8
+	movq	8(%rbp),	%rdi
+	movq	8(%rdi),	%r9
+	decq	%r9
+	cmpq	%r9,	%r8
+	jl	gaussianElimination.loop.findValidColumn
+	# } else continue
+	jmp	gaussianElimination.loop.postamble
+	# }
+gaussianElimination.loop.validRow:
+	movq	8(%rbp),	%rdi
+	movq	(%rdi),	%rdi
+	# scalar = system.equations[i*system.width + i]
+	movq	-24(%rbp),	%rcx
+	addq	-32(%rbp),	%rcx
+	movq	(%rdi, %rcx, 8),	%rax
+	movq	%rax,	-16(%rbp)
+
+	# for (j = i; j < system.width; ++i) {
+	movq	$0,	%rcx
+	movq	8(%rbp),	%rdi
+gaussianElimination.loop.div:
+	movq	(%rdi),	%rdi
+	# system.equations[i*system.width + j] /= scalar
+	movq	-24(%rbp),	%r8
+	addq	%rcx,	%r8
+	movq	(%rdi, %r8, 8),	%xmm0
+	vdivsd	-16(%rbp),	%xmm0,	%xmm0
+	movq	%xmm0,	(%rdi, %r8, 8)
+
+	incq	%rcx
+	movq	8(%rbp),	%rdi
+	cmpq	8(%rdi),	%rcx
+	jl	gaussianElimination.loop.div
+	# }
+
+	# for (j = i+1; j < system.height; ++j) {
+	movq	-32(%rbp),	%r8
+	incq	%r8
+gaussianElimination.loop.inner:
+	movq	8(%rbp),	%rdi
+	# scalar = system.equations[j*system.width + i]
+	movq	8(%rdi),	%rax
+	mulq	%r8
+	movq	%rax,	-40(%rbp)
+	addq	-32(%rbp),	%rax
+	movq	(%rdi),	%rdi
+	movq	(%rdi, %rax, 8),	%rax
+	movq	%rax,	-16(%rbp)
+
+	# if (scalar == 0) continue
+	pxor	%xmm0,	%xmm0
+	vcmpeqsd	-16(%rbp),	%xmm0,	%xmm1
+	movq	%xmm1,	%rax
+	cmpq	$-1,	%rax
+	je	gaussianElimination.loop.inner.postamble
+
+
+	# for (k = i; k < system.width; ++k) {
+	movq	-32(%rbp),	%r9
+	movq	8(%rbp),	%rdi
+gaussianElimination.loop.inner.inner:
+	movq	(%rdi),	%rdi
+	movq	-40(%rbp),	%rax
+	addq	%r9,	%rax
+	movq	-24(%rbp),	%r10
+	addq	%r9,	%r10
+	# system.equations[j*system.width + k] -= scalar * system.equations[i*system.width + k]
+	movq	(%rdi, %r10, 8),	%xmm0
+	vmulsd	-16(%rbp),	%xmm0,	%xmm1
+	movq	(%rdi, %rax, 8),	%xmm2
+	vsubsd	%xmm2,	%xmm1,	%xmm2
+	movq	%xmm2,	(%rdi, %rax, 8)
+
+	incq	%r9
+	movq	8(%rbp),	%rdi
+	cmpq	8(%rdi),	%r9
+	jl	gaussianElimination.loop.inner.inner
+	# }
+
+gaussianElimination.loop.inner.postamble:
+	incq	%r8
+	movq	8(%rbp),	%rdi
+	cmpq	16(%rdi),	%r8
+	jl	gaussianElimination.loop.inner
+	# }
+	
+gaussianElimination.loop.postamble:
+	incq	-32(%rbp)
+	cmpq	%r15,	-32(%rbp)
+	jl	gaussianElimination.loop
+	# }
+	
+	# if the system is not malformed system.width-1-rows variables should be free
+	# find which variables are free by checking the diagonal of the system
+	# all variables after width-1 are free by default
+
+	# for (i = 0; i < system.width-1; ++i) {
+	movq	$0,	%rcx
+	movq	8(%rbp),	%rdi
+gaussianElimination.findFreeVariables:
+	movq	8(%rdi),	%rax
+	mulq	%rcx
+	addq	%rcx,	%rax
+	movq	(%rdi),	%rdi
+	# if (i < rows && system.equations[i*system.width + i] != 0) continue
+	movq	(%rdi, %rax, 8),	%xmm1
+	pxor	%xmm0,	%xmm0
+	vcmpeqsd	%xmm1,	%xmm0,	%xmm2
+	movq	%xmm2,	%rax
+
+	cmpq	%r15,	%rcx
+	jge	gaussianElimination.findFreeVariables.body
+	cmpq	$-1,	%rax
+	jne	gaussianElimination.findFreeVariables.postamble
+
+gaussianElimination.findFreeVariables.body:
+	# freeVariables.count++
+	incl	-56(%rbp)
+	# freeVariables.variables |= (1 << i)
+	movl	$1,	%eax
+	shll	%cl,	%eax
+	orl	%eax,	-52(%rbp)
+
+gaussianElimination.findFreeVariables.postamble:
+	incq	%rcx
+	movq	8(%rbp),	%rdi
+	movq	8(%rdi),	%r8
+	decq	%r8
+	cmpq	%r8,	%rcx
+	jl	gaussianElimination.findFreeVariables
+	# }
+
+	movq	-56(%rbp),	%rax
+
+	leave
+	popq	%rdi
+	popq	%r15
+	popq	%r14
+	popq	%r13
+	popq	%r12
+	popq	%r11
+	popq	%r10
+	popq	%r9
+	popq	%r8
+	ret
+
+# u64 backwardsSubstitution(LinearSystem* system, FreeVariables* variables)
+backwardsSubstitution:
+	ret
+
 _start:
 	# Pop argc, progname and first command-line input
 	popq	%rdi
@@ -324,6 +708,19 @@ loop:
 
 	movq	-48(%rbp),	%rdi
 	call	printNumber
+
+	# TODO: Get linear system form machines
+
+	subq	$24,	%rsp
+	movq	$test_matrix,	(%rsp)
+	movq	$7,	8(%rsp)
+	movq	$4,	16(%rsp)
+	movq	%rsp,	%rdi
+	call	linearSystemConvertToDouble
+
+	call	gaussianElimination
+tmp:
+	nop
 
 	mov	$SYS_EXIT,	%rax
 	mov	$0,	%rdi
