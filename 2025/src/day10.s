@@ -642,8 +642,119 @@ gaussianElimination.findFreeVariables.postamble:
 	popq	%r8
 	ret
 
+# For the purpose of this function the FreeVariables structure should have a pointer to the values of the free variables
+# appended i.e.
+# struct FreeVariables {
+# u32 count
+# u32 variables
+# f64* variables
+# }
 # u64 backwardsSubstitution(LinearSystem* system, FreeVariables* variables)
 backwardsSubstitution:
+	pushq	%r8
+	pushq	%r9
+	pushq	%r10
+	pushq	%r11
+	pushq	%r12
+	pushq	%r13
+	pushq	%r14
+	pushq	%r15
+	pushq	%rdi
+	pushq	%rsi
+	pushq	%rbp
+	movq	%rsp,	%rbp
+
+	# &solution = %rbp-8
+	pushq	$0
+
+	# push system.width-1 zeros to the stack (this is the storage for the solution)
+	movq	8(%rdi),	%rax
+	decq	%rax
+	shl	$3,	%rax
+	subq	%rax,	%rsp
+	movq	%rsp,	-8(%rbp)
+	
+
+	# k = 0 (index of the value of the next free variable)
+	movq	$0,	%r15
+	# for (i = system.width - 2; i >= 0; --i) {
+	movslq	8(%rdi),	%rcx
+	subq	$2,	%rcx
+backwardsSubstitution.loop:
+	movl	$1,	%r8d
+	shll	%cl,	%r8d
+	# if ((1 << i) & variables.variables) {
+	testl	4(%rsi),	%r8d
+	jz	backwardsSubstitution.loop.else
+	# solution[i] = variables.values[k]
+	movq	8(%rsi),	%rax
+	movq	(%rax, %r15, 8),	%r9
+	movq	-8(%rbp),	%rax
+	movq	%r9,	(%rax, %rcx, 8)
+	movq	%r9,	%xmm0
+	# k++
+	incq	%r15
+	# continue
+	jmp	backwardsSubstitution.loop.postamble
+	# }
+backwardsSubstitution.loop.else:
+	# solution[i] = system.equations[(i+1)*system.width-1]
+	leaq	1(%rcx),	%rax
+	movq	8(%rdi),	%rdx
+	mulq	%rdx
+	movq	(%rdi),	%r10
+	movq	-8(%r10, %rax, 8),	%rdx
+	movq	-8(%rbp),	%r9
+	movq	%rdx,	(%r9, %rcx, 8)
+	subq	8(%rdi),	%rax
+	addq	%rax,	%r10
+	# for (j = system.width - 2; j > i; --j) {
+	movslq	8(%rdi),	%r8
+	subq	$2,	%r8
+backwardsSubstitution.loop.inner:
+	# solution[i] -= solution[j] * system.equations[i*system.width + j]
+	movq	(%r9, %r8, 8),	%xmm0
+	vmulsd	(%r10, %r8, 8), %xmm0, %xmm1
+	movq	(%r9,	%rcx, 8),	%xmm2
+	vsubsd	%xmm1,	%xmm2,	%xmm2
+	movq	%xmm2,	(%r9, %rcx, 8)
+
+	decq	%r8
+	cmpq	%rcx,	%r8
+	jg	backwardsSubstitution.loop.inner
+	# }
+
+backwardsSubstitution.loop.postamble:
+	decq	%rcx
+	cmpq	$0,	%rcx
+	jge	backwardsSubstitution.loop
+	# }
+
+	movq	8(%rdi),	%rcx
+	decq	%rcx
+
+	pxor	%xmm0,	%xmm0
+backwardsSubstitution.sum:
+	popq	%rax
+	movq	%rax,	%xmm1
+	vaddsd	%xmm1,	%xmm0,	%xmm0
+
+	decq	%rcx
+	cmpq	$0,	%rcx
+	jge	backwardsSubstitution.sum
+
+	# sum over the values of the solution
+	leave
+	popq	%rsi
+	popq	%rdi
+	popq	%r15
+	popq	%r14
+	popq	%r13
+	popq	%r12
+	popq	%r11
+	popq	%r10
+	popq	%r9
+	popq	%r8
 	ret
 
 _start:
@@ -717,10 +828,25 @@ loop:
 	movq	$4,	16(%rsp)
 	movq	%rsp,	%rdi
 	call	linearSystemConvertToDouble
-
 	call	gaussianElimination
-tmp:
-	nop
+
+	subq	$32,	%rsp
+	movq	%rax,	(%rsp)
+	leaq	16(%rsp),	%rax
+	movq	%rax,	8(%rsp)
+
+	movq	$2,	(%rax)
+	movq	$1,	8(%rax)
+	vmovdqu64	(%rax),	%xmm0
+	vcvtqq2pd	%xmm0,	%xmm0
+	vmovupd	%xmm0,	(%rax)
+
+	movq	%rsp,	%rsi
+	call	backwardsSubstitution
+
+	vcvtpd2qq	%xmm0,	%xmm0
+	movq	%xmm0,	%rdi
+	call	printNumber
 
 	mov	$SYS_EXIT,	%rax
 	mov	$0,	%rdi
