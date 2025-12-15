@@ -13,13 +13,11 @@
 
 .equ	ABS_CONSTANT_F64,	0x7FFFFFFFFFFFFFFF
 
-test_matrix:
-	.quad	0,0,0,0,1,1,3, 0,1,0,0,0,1,5, 0,0,1,1,1,0,4, 1,1,0,1,0,0,7, 0,0,0,0
-
 .section .text
 
 .globl _start
 .extern alloc
+.extern copy
 .extern printNumber
 .extern parseNumber
 
@@ -29,7 +27,7 @@ test_matrix:
 .extern	fifoPop
 
 # struct Machine 
-# u16 current
+# u16 number_lights
 # u16 target
 # u32 btns_len
 # u16* buttons
@@ -71,6 +69,8 @@ parseMachine.indicatorLights.postamble:
 	cmpb	$']',	1(%rsi, %rcx)
 	jne	parseMachine.indicatorLights
 	# } while ((input + 1)[i] != ']')
+
+	movw	%cx,	(%rdi)
 
 	movq	%rcx,	%r8
 	addq	$2,	%r8
@@ -280,6 +280,91 @@ machineBFS.postamble:
 # } (size = 8 bytes)
 # Note that FreeVariables.variables is treated as a bitset that marks which of the variables are free
 
+# LinearSystem linearSystemFromMachine(Machine* machine)
+linearSystemFromMachine:
+	pushq	%r8
+	pushq	%r9
+	pushq	%r10
+	pushq	%r11
+	pushq	%r12
+	pushq	%r13
+	pushq	%r14
+	pushq	%r15
+	pushq	%rdi
+	pushq	%rsi
+	pushq	%rbp
+	movq	%rsp,	%rbp
+
+	movzwq	(%rsi),	%rax
+	movq	%rax,	16(%rdi)
+	movslq	4(%rsi),	%rcx
+	incq	%rcx
+	movq	%rcx,	8(%rdi)
+	mulq	%rcx
+	shl	$3,	%rax
+	movq	%rax,	%rdi
+	call	alloc
+	addq	$8,	%rax
+	movq	16(%rbp),	%rdi
+	movq	%rax,	(%rdi)
+
+	movq	8(%rbp),	%rsi
+	# buttons
+	movq	8(%rsi),	%r8
+	# joltages
+	movq	16(%rsi),	%r9
+	# matrix
+	movq	(%rdi),	%r10
+
+	# for (i = 0; i < system.height; ++i) {
+	movq	$0,	%rcx
+linearSystemFromMachine.fill:
+	# for (j = 0; j < system.width-1; ++j) {
+	movq	$0,	%r11
+linearSystemFromMachine.fill.inner:
+	# system.equations[i*system.width+j] = ((1 << i) & buttons[j]) > 0
+	movq	$0,	%r12
+	movq	$1,	%r13
+	movq	$1,	%rax
+	shl	%cl,	%rax
+	movzwq	(%r8, %r11, 2),	%r15
+	test	%r15,	%rax
+	cmovnzq	%r13,	%r12
+	movq	%r12,	(%r10,	%r11, 8)
+
+	incq	%r11
+	movq	8(%rdi),	%r13
+	decq	%r13
+	cmpq	%r13,	%r11
+	jl	linearSystemFromMachine.fill.inner
+	# }
+	# system.equations[(i+1)*system.width-1] = joltages[i]
+	movzwq	(%r9, %rcx, 2),	%r15
+	movq	%r15,	(%r10,	%r11, 8)
+
+	incq	%rcx
+	movq	8(%rdi),	%r12
+	leaq	(%r10, %r12, 8),	%r10
+	cmpq	16(%rdi),	%rcx
+	jl	linearSystemFromMachine.fill
+	# }
+
+	movq	16(%rbp),	%rdi
+	call	linearSystemConvertToDouble
+
+	leave
+	popq	%rsi
+	popq	%rdi
+	popq	%r15
+	popq	%r14
+	popq	%r13
+	popq	%r12
+	popq	%r11
+	popq	%r10
+	popq	%r9
+	popq	%r8
+	ret
+
 # void linearSystemConvertToDouble(LinearSystem* system)
 # Convert a linear system with an integer matrix to a linear system with a double matrix.
 # Note that this operation is performed in-place
@@ -463,7 +548,10 @@ gaussianElimination.loop.findValidColumn:
 	movq	8(%rbp),	%rdi
 	movq	(%rdi),	%rdi
 	# if (!system.equations[i*system.width + j]) continue
-	cmpq	$0,	(%rdi, %rax, 8)
+	pxor	%xmm0,	%xmm0
+	vcmpeqsd	(%rdi, %rax, 8),	%xmm0,	%xmm1
+	movq	%xmm1,	%rax
+	cmpq	$-1,	%rax
 	je	gaussianElimination.loop.findValidColumn.postamble
 
 	# for (k = 0; k < system.height; ++k) {
@@ -514,7 +602,7 @@ gaussianElimination.loop.validRow:
 	movq	%rax,	-16(%rbp)
 
 	# for (j = i; j < system.width; ++i) {
-	movq	$0,	%rcx
+	movq	-32(%rbp),	%rcx
 	movq	8(%rbp),	%rdi
 gaussianElimination.loop.div:
 	movq	(%rdi),	%rdi
@@ -590,7 +678,7 @@ gaussianElimination.loop.postamble:
 	
 	# if the system is not malformed system.width-1-rows variables should be free
 	# find which variables are free by checking the diagonal of the system
-	# all variables after width-1 are free by default
+	# all variables after rows are free by default
 
 	# for (i = 0; i < system.width-1; ++i) {
 	movq	$0,	%rcx
@@ -647,7 +735,7 @@ gaussianElimination.findFreeVariables.postamble:
 # struct FreeVariables {
 # u32 count
 # u32 variables
-# f64* variables
+# u64* values
 # }
 # u64 backwardsSubstitution(LinearSystem* system, FreeVariables* variables)
 backwardsSubstitution:
@@ -668,10 +756,17 @@ backwardsSubstitution:
 	pushq	$0
 
 	# push system.width-1 zeros to the stack (this is the storage for the solution)
-	movq	8(%rdi),	%rax
-	decq	%rax
-	shl	$3,	%rax
-	subq	%rax,	%rsp
+	# for (i = 0; i < system.width - 1; ++i) {
+	movq	$0,	%rcx
+	movq	8(%rdi),	%r15
+	decq	%r15
+backwardsSubstitution.initSolution:
+	# push 0
+	pushq	$0
+	incq	%rcx
+	cmpq	%r15,	%rcx
+	jl	backwardsSubstitution.initSolution
+	# }
 	movq	%rsp,	-8(%rbp)
 	
 
@@ -688,10 +783,10 @@ backwardsSubstitution.loop:
 	jz	backwardsSubstitution.loop.else
 	# solution[i] = variables.values[k]
 	movq	8(%rsi),	%rax
-	movq	(%rax, %r15, 8),	%r9
+	movq	(%rax, %r15, 8),	%xmm0
+	vcvtqq2pd	%xmm0,	%xmm0
 	movq	-8(%rbp),	%rax
-	movq	%r9,	(%rax, %rcx, 8)
-	movq	%r9,	%xmm0
+	movq	%xmm0,	(%rax, %rcx, 8)
 	# k++
 	incq	%r15
 	# continue
@@ -707,11 +802,14 @@ backwardsSubstitution.loop.else:
 	movq	-8(%rbp),	%r9
 	movq	%rdx,	(%r9, %rcx, 8)
 	subq	8(%rdi),	%rax
+	shl	$3,	%rax
 	addq	%rax,	%r10
 	# for (j = system.width - 2; j > i; --j) {
 	movslq	8(%rdi),	%r8
 	subq	$2,	%r8
 backwardsSubstitution.loop.inner:
+	cmpq	%rcx,	%r8
+	jle	backwardsSubstitution.loop.postamble
 	# solution[i] -= solution[j] * system.equations[i*system.width + j]
 	movq	(%r9, %r8, 8),	%xmm0
 	vmulsd	(%r10, %r8, 8), %xmm0, %xmm1
@@ -720,8 +818,7 @@ backwardsSubstitution.loop.inner:
 	movq	%xmm2,	(%r9, %rcx, 8)
 
 	decq	%r8
-	cmpq	%rcx,	%r8
-	jg	backwardsSubstitution.loop.inner
+	jmp	backwardsSubstitution.loop.inner
 	# }
 
 backwardsSubstitution.loop.postamble:
@@ -737,13 +834,19 @@ backwardsSubstitution.loop.postamble:
 backwardsSubstitution.sum:
 	popq	%rax
 	movq	%rax,	%xmm1
+	pxor	%xmm3,	%xmm3
+	ucomisd	%xmm3,	%xmm1
+	jc	backwardsSubstitution.negativeSolution
 	vaddsd	%xmm1,	%xmm0,	%xmm0
 
 	decq	%rcx
 	cmpq	$0,	%rcx
 	jge	backwardsSubstitution.sum
 
-	# sum over the values of the solution
+	vcvtpd2qq	%xmm0,	%xmm0
+	movq	%xmm0,	%rax
+
+backwardsSubstitution.postamble:
 	leave
 	popq	%rsi
 	popq	%rdi
@@ -756,6 +859,137 @@ backwardsSubstitution.sum:
 	popq	%r9
 	popq	%r8
 	ret
+backwardsSubstitution.negativeSolution:
+	movq	$-1,	%rax
+	jmp	backwardsSubstitution.postamble
+
+# u64 freeVariablesSum(FreeVariables* variables)
+freeVariablesSum:
+	movq	$0,	%rax
+	movq	$0,	%rcx
+freeVariablesSum.loop:
+	movq	8(%rdi),	%rsi
+	addq	(%rsi, %rcx, 8),	%rax
+	incl	%ecx
+	cmpl	(%rdi),	%ecx
+	jl	freeVariablesSum.loop
+	ret
+
+# u64 linearSystemSearchSolutionSpace(LinearSystem* system, FreeVariables* variables)
+# The space for the free variables needs to be allocated on the stack of this function
+linearSystemSearchSolutionSpace:
+	pushq	%r8
+	pushq	%r9
+	pushq	%r10
+	pushq	%r11
+	pushq	%r12
+	pushq	%r13
+	pushq	%r14
+	pushq	%r15
+	pushq	%rdi
+	pushq	%rsi
+	pushq	%rbp
+	movq	%rsp,	%rbp
+
+	cmpl	$0,	(%rsi)
+	je	linearSystemSearchSolutionSpace.noFreeVariables
+
+	# &min = %rbp-8
+	pushq	$-1
+	# &stack_bottom = %rbp-16
+	pushq	$0
+
+	movslq	(%rsi),	%rax
+	shl	$3,	%rax
+	subq	%rax,	%rsp
+
+	movq	%rsp,	8(%rsi)
+	movq	%rsp,	-16(%rbp)
+	# for (i = 0; i < variables.count; ++i) {
+	movq	$0,	%rcx
+linearSystemSearchSolutionSpace.init:
+	pushq	$0
+	incl	%ecx
+	cmpl	(%rsi),	%ecx
+	jl	linearSystemSearchSolutionSpace.init
+	# }
+
+	# do {
+linearSystemSearchSolutionSpace.loop:
+	# copy(variable_buffer, %rsp, variables.count*8)
+	movq	8(%rbp),	%rsi
+	movslq	(%rsi),	%rdx
+	shl	$3,	%rdx
+	movq	8(%rsi),	%rdi
+	movq	%rsp,	%rsi
+	call	copy
+
+	# %rsp += variables.count*8
+	addq	%rdx,	%rsp
+
+	# if (sum(variables) >= min) continue
+	movq	8(%rbp),	%rdi
+	call	freeVariablesSum
+	cmpq	-8(%rbp),	%rax
+	jae	linearSystemSearchSolutionSpace.loop.postamble
+
+	# sol = backwardsSubstitution(system, variables)
+	movq	16(%rbp),	%rdi
+	movq	8(%rbp),	%rsi
+	call	backwardsSubstitution
+
+	# min = minimum(sol, min)
+	movq	-8(%rbp),	%r15
+	cmpq	%r15,	%rax
+	cmovbq	%rax,	%r15
+	movq	%r15,	-8(%rbp)
+
+	# for (i = 0; i < variables.count; ++i) {
+	movq	$0,	%r8
+	movq	8(%rbp),	%rsi
+linearSystemSearchSolutionSpace.loop.inner:
+	# %rsp -= variables.count*8
+	movslq	(%rsi),	%rdx
+	shl	$3,	%rdx
+	subq	%rdx,	%rsp
+	# copy(%rsp, variable_buffer, variables.count*8)
+	movq	%rsp,	%rdi
+	movq	8(%rsi),	%rsi
+	call	copy
+	# %rsp[i]++
+	incq	(%rsp, %r8, 8)
+
+	incl	%r8d
+	movq	8(%rbp),	%rsi
+	cmpl	(%rsi),	%r8d
+	jl	linearSystemSearchSolutionSpace.loop.inner
+	# }
+
+linearSystemSearchSolutionSpace.loop.postamble:
+	cmpq	-16(%rbp),	%rsp
+	jne	linearSystemSearchSolutionSpace.loop
+	# } while (%rsp != base)
+
+	movq	-8(%rbp),	%rax
+
+linearSystemSearchSolutionSpace.postamble:
+	leave
+	popq	%rsi
+	popq	%rdi
+	popq	%r15
+	popq	%r14
+	popq	%r13
+	popq	%r12
+	popq	%r11
+	popq	%r10
+	popq	%r9
+	popq	%r8
+	ret
+linearSystemSearchSolutionSpace.noFreeVariables:
+	movq	16(%rbp),	%rdi
+	movq	8(%rbp),	%rsi
+	call	backwardsSubstitution
+	jmp	linearSystemSearchSolutionSpace.postamble
 
 _start:
 	# Pop argc, progname and first command-line input
@@ -802,6 +1036,14 @@ _start:
 	pushq	$0
 	# &pt1 = %rbp-48
 	pushq	$0
+
+	# &system = %rbp-72
+	subq	$24,	%rsp
+	# &variables = %rbp-88
+	subq	$16,	%rsp
+	# &pt2 = %rbp-96
+	pushq	$0
+
 loop:
 	leaq	-32(%rbp),	%rdi
 	movq	-8(%rbp),	%rsi
@@ -813,6 +1055,21 @@ loop:
 	call	machineBFS
 	addq	%rax,	-48(%rbp)
 
+	leaq	-72(%rbp),	%rdi
+	leaq	-32(%rbp),	%rsi
+	call	linearSystemFromMachine
+	leaq	-72(%rbp),	%rdi
+	call	gaussianElimination
+	movq	%rax,	-88(%rbp)
+
+	leaq	-72(%rbp),	%rdi
+	leaq	-88(%rbp),	%rsi
+	call	linearSystemSearchSolutionSpace
+	addq	%rax,	-96(%rbp)
+
+	movq	-40(%rbp),	%rdi
+	call	printNumber
+
 	movq	-40(%rbp),	%r8
 	cmpq	56(%rbp),	%r8
 	jl	loop
@@ -820,32 +1077,7 @@ loop:
 	movq	-48(%rbp),	%rdi
 	call	printNumber
 
-	# TODO: Get linear system form machines
-
-	subq	$24,	%rsp
-	movq	$test_matrix,	(%rsp)
-	movq	$7,	8(%rsp)
-	movq	$4,	16(%rsp)
-	movq	%rsp,	%rdi
-	call	linearSystemConvertToDouble
-	call	gaussianElimination
-
-	subq	$32,	%rsp
-	movq	%rax,	(%rsp)
-	leaq	16(%rsp),	%rax
-	movq	%rax,	8(%rsp)
-
-	movq	$2,	(%rax)
-	movq	$1,	8(%rax)
-	vmovdqu64	(%rax),	%xmm0
-	vcvtqq2pd	%xmm0,	%xmm0
-	vmovupd	%xmm0,	(%rax)
-
-	movq	%rsp,	%rsi
-	call	backwardsSubstitution
-
-	vcvtpd2qq	%xmm0,	%xmm0
-	movq	%xmm0,	%rdi
+	movq	-96(%rbp),	%rdi
 	call	printNumber
 
 	mov	$SYS_EXIT,	%rax
