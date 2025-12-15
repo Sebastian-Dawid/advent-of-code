@@ -23,6 +23,7 @@ fn addDay(b: *std.Build, day: usize, options: Options) !void {
         mod.addAssemblyFile(b.path(options.root_file));
         mod.addAssemblyFile(b.path("src/utils.s"));
         mod.addAssemblyFile(b.path("src/fifo.s"));
+        mod.addAssemblyFile(b.path("src/lifo.s"));
     }
 
     var buf: [1024]u8 = undefined;
