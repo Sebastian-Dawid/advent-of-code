@@ -13,14 +13,12 @@
 
 .equ	ABS_CONSTANT_F64,	0x7FFFFFFFFFFFFFFF
 
-overflow_message:
-	.asciz	"Variable sum overflowed!\n"
-
 .section .text
 
 .globl _start
 .extern alloc
 .extern copy
+.extern memset
 .extern printNumber
 .extern parseNumber
 
@@ -743,7 +741,7 @@ gaussianElimination.findFreeVariables.postamble:
 # struct FreeVariables {
 # u32 count
 # u32 variables
-# u32* values
+# u16* values
 # }
 # u64 backwardsSubstitution(LinearSystem* system, FreeVariables* variables)
 backwardsSubstitution:
@@ -791,7 +789,7 @@ backwardsSubstitution.loop:
 	jz	backwardsSubstitution.loop.else
 	# solution[i] = variables.values[k]
 	movq	8(%rsi),	%rax
-	movslq	(%rax, %r15, 4),	%rax
+	movzwq	(%rax, %r15, 2),	%rax
 	movq	%rax,	%xmm0
 	vcvtqq2pd	%xmm0,	%xmm0
 	movq	-8(%rbp),	%rax
@@ -814,7 +812,7 @@ backwardsSubstitution.loop.else:
 	shl	$3,	%rax
 	addq	%rax,	%r10
 	# for (j = system.width - 2; j > i; --j) {
-	movslq	8(%rdi),	%r8
+	movq	8(%rdi),	%r8
 	subq	$2,	%r8
 backwardsSubstitution.loop.inner:
 	cmpq	%rcx,	%r8
@@ -844,8 +842,8 @@ backwardsSubstitution.sum:
 	popq	%rax
 	movq	%rax,	%xmm1
 	pxor	%xmm3,	%xmm3
-	ucomisd	%xmm3,	%xmm1
-	jc	backwardsSubstitution.negativeSolution
+	ucomisd	%xmm1,	%xmm3
+	ja	backwardsSubstitution.negativeSolution
 	vaddsd	%xmm1,	%xmm0,	%xmm0
 
 	decq	%rcx
@@ -872,208 +870,95 @@ backwardsSubstitution.negativeSolution:
 	movq	$-1,	%rax
 	jmp	backwardsSubstitution.postamble
 
-# u64 freeVariablesSum(FreeVariables* variables)
-freeVariablesSum:
-	movq	$0,	%rax
-	movq	$0,	%rcx
-freeVariablesSum.loop:
-	movq	8(%rdi),	%rsi
-	movslq	(%rsi, %rcx, 4),	%rdx
-	addq	%rdx,	%rax
-	jo	overflow
-	incl	%ecx
-	cmpl	(%rdi),	%ecx
-	jl	freeVariablesSum.loop
-	ret
-
-# u64 linearSystemSearchSolutionSpace(LinearSystem* system, FreeVariables* variables)
-# The space for the free variables needs to be allocated on the stack of this function
-#
-# NOTE: The Lifo approach does not work due to memory constraints. Use a single buffer and recursion instead.
+# u64 linearSystemSearchSolutionSpace(LinearSystem* system, FreeVariables* variables, u64 bound, u64 depth,
+#                                     u64 current_cost, u64 current_min)
 linearSystemSearchSolutionSpace:
-	pushq	%r8
-	pushq	%r9
-	pushq	%r10
-	pushq	%r11
-	pushq	%r12
-	pushq	%r13
-	pushq	%r14
-	pushq	%r15
-	pushq	%rdi
-	pushq	%rsi
 	pushq	%rbp
 	movq	%rsp,	%rbp
-
-	cmpl	$0,	(%rsi)
-	je	linearSystemSearchSolutionSpace.noFreeVariables
-
-	# &min = %rbp-8
-	pushq	$-1
-	# &seen = %rbp-16
-	pushq	$0
-
-	# &S = %rbp-40
-	subq	$24,	%rsp
-	# S = lifoInit(50 * 1024 * 1024 * 1024)
-	leaq	-40(%rbp),	%rdi
-	movq	$53687091200,	%rsi
-	call	lifoInit
-
-	# for (i = 0; i < variables.count; ++i) {
-	movq	$0,	%rcx
-	movq	8(%rbp),	%rsi
-linearSystemSearchSolutionSpace.initFreeVariables:
-	pushq	$0
-	incl	%ecx
-	cmpl	(%rsi),	%ecx
-	jl	linearSystemSearchSolutionSpace.initFreeVariables
-	# }
-	movq	%rsp,	8(%rsi)
-
-	# for (i = 0; i < variables.count; ++i) {
-	movq	$0,	%rcx
-linearSystemSearchSolutionSpace.initSeen:
-	pushq	$-1
-	incl	%ecx
-	cmpl	(%rsi),	%ecx
-	jl	linearSystemSearchSolutionSpace.initSeen
-	# }
-	movq	%rsp,	-16(%rbp)
-
-	movq	8(%rbp),	%rsi
-
-	# lifoPush(S, zeros)
-	leaq	-40(%rbp),	%rdi
-	movslq	(%rsi),	%rdx
-	shl	$2,	%rdx
-	movq	8(%rsi),	%rsi
-	call	lifoPush
-
-	# do {
-linearSystemSearchSolutionSpace.loop:
-	# lifoPop(S, variable_buffer, variables.count * 8)
-	movq	8(%rbp),	%rsi
-	leaq	-40(%rbp),	%rdi
-	movslq	(%rsi),	%rdx
-	shl	$2,	%rdx
-	movq	8(%rsi),	%rsi
-	call	lifoPop
-
-	# for (i = 0; i < variables.count; ++i) {
-	movq	$0,	%rcx
-	movq	8(%rbp),	%rsi
-linearSystemSearchSolutionSpace.loop.seen:
-	# if (variable_buffer[i] > seen[i]) break
-	movq	-16(%rbp),	%rdi
-	movq	8(%rsi),	%rsi
-	movq	(%rdi, %rcx, 8),	%rax
-	cmpl	%eax,	(%rsi, %rcx, 4)
-	jg	linearSystemSearchSolutionSpace.loop.seen.after
-
-	incl	%ecx
-	movq	8(%rbp),	%rsi
-	cmpl	(%rsi),	%ecx
-	jl	linearSystemSearchSolutionSpace.loop.seen
-	# } else continue
-	jmp	linearSystemSearchSolutionSpace.loop.postamble
-linearSystemSearchSolutionSpace.loop.seen.after:
-
-	# for (i = 0; i < variables.count; ++i) {
-	movq	$0,	%rcx
-	movq	8(%rbp),	%rsi
-linearSystemSearchSolutionSpace.loop.updateSeen:
-	# seen[i] = max(seen[i], variable_buffer[i])
-	movq	-16(%rbp),	%r8
-	movq	8(%rsi),	%r9
-	movq	(%r8, %rcx, 8),	%r10
-	movslq	(%r9, %rcx, 4),	%r11
-	cmpq	%r10,	%r11
-	cmovgq	%r11,	%r10
-	movq	%r10,	(%r8, %rcx, 8)
-
-	incl	%ecx
-	movq	8(%rbp),	%rsi
-	cmpl	(%rsi),	%ecx
-	jl	linearSystemSearchSolutionSpace.loop.updateSeen
-	# }
-
-	# if (sum(variables) >= min) continue
-	movq	8(%rbp),	%rdi
-	call	freeVariablesSum
-	cmpq	-8(%rbp),	%rax
-	jae	linearSystemSearchSolutionSpace.loop.postamble
-
-	# sol = backwardsSubstitution(system, variables)
-	movq	16(%rbp),	%rdi
-	movq	8(%rbp),	%rsi
-	call	backwardsSubstitution
-
-	# min = minimum(sol, min)
-	movq	-8(%rbp),	%r15
-	cmpq	%r15,	%rax
-	cmovbq	%rax,	%r15
-	movq	%r15,	-8(%rbp)
-
-	# for (i = 0; i < variables.count; ++i) {
-	movq	$0,	%r8
-	movq	8(%rbp),	%rsi
-linearSystemSearchSolutionSpace.loop.inner:
-	# save start address of the stack buffer
-	movq	-24(%rbp),	%rdi
-	addq	-40(%rbp),	%rdi
-
-	movl	(%rdi, %r8, 4),	%eax
-	incl	%eax
-	jo	linearSystemSearchSolutionSpace.loop.inner.postamble
-
+	# &system = %rbp-8
 	pushq	%rdi
-	# lifoPush(S, variable_buffer, variables.count * 8)
-	movq	8(%rbp),	%rsi
-	leaq	-40(%rbp),	%rdi
-	movslq	(%rsi),	%rdx
-	shl	$2,	%rdx
-	movq	8(%rsi),	%rsi
-	call	lifoPush
-	popq	%rdi
-	# buffer[i]++
-	incl	(%rdi, %r8, 4)
+	# &variables = %rbp-16
+	pushq	%rsi
+	# &bound = %rbp-24
+	pushq	%rdx
+	# &depth = %rbp-32
+	pushq	%rcx
+	# &current_cost = %rbp-40
+	pushq	%r8
+	# &current_min = %rbp-48
+	pushq	%r9
+	pushq	%r10
 
-linearSystemSearchSolutionSpace.loop.inner.postamble:
-	incl	%r8d
-	movq	8(%rbp),	%rsi
-	cmpl	(%rsi),	%r8d
-	jl	linearSystemSearchSolutionSpace.loop.inner
+	# if (current_cost >= current_min) return current_min;
+	cmpq	%r9,	%r8
+	cmovae	%r9,	%rax
+	jae	linearSystemSearchSolutionSpace.postamble
+
+	# if (depth == variables.count) {
+	cmpl	(%rsi),	%ecx
+	jne	linearSystemSearchSolutionSpace.mainBody
+	# candidate = backwardsSubstitution(system, variables);
+	call	backwardsSubstitution
+	movq	-48(%rbp),	%r9
+	# if (candidate < 0 || candidate >= current_min) return current_min
+	cmpq	$0,	%rax
+	cmovlq	%r9,	%rax
+	jl	linearSystemSearchSolutionSpace.postamble
+	cmpq	%r9,	%rax
+	cmovaq	%r9,	%rax
+	# return candidate
+	jmp	linearSystemSearchSolutionSpace.postamble
 	# }
 
-linearSystemSearchSolutionSpace.loop.postamble:
-	cmpq	$0,	-40(%rbp)
-	jne	linearSystemSearchSolutionSpace.loop
-	# } while (S.size != 0)
+linearSystemSearchSolutionSpace.mainBody:
+	# budget = max(0, current_min - current_cost)
+	movq	$0,	%r10
+	movq	%r9,	%rax
+	subq	%r8,	%rax
+	cmpq	%r8,	%r9
+	cmovaq	%rax,	%r10
+	# new_bound = min(bound, budget)
+	cmpq	%r10,	%rdx
+	cmovaq	%r10,	%rdx
 
-	# lifoDeinit(S)
-	leaq	-40(%rbp),	%rdi
-	call	lifoDeinit
+	# for (i = 0; i < new_bound; ++i) {
+	movq	$0,	%r10
+linearSystemSearchSolutionSpace.loop:
+	cmpq	%rdx,	%r10
+	jae	linearSystemSearchSolutionSpace.postamble
 
-	movq	-8(%rbp),	%rax
+	# variables.values[depth] = i
+	movq	8(%rsi),	%rsi
+	movw	%r10w,	(%rsi, %rcx, 2)
+	movq	-16(%rbp),	%rsi
+	# candidate = linearSystemSearchSolutionSpace(system, variables, new_bound, depth + 1,
+	#                                             current_cost + i, current_min)
+	incq	%rcx
+	addq	%r10,	%r8
+	call	linearSystemSearchSolutionSpace
+	movq	%rax,	%r9
+
+	# if (current_min <= current_cost + i) return candidate
+	cmpq	%r8,	%r9
+	jbe	linearSystemSearchSolutionSpace.postamble
+
+	subq	%r10,	%r8
+	decq	%rcx
+
+	incq	%r10
+	jmp	linearSystemSearchSolutionSpace.loop
+	# }
 
 linearSystemSearchSolutionSpace.postamble:
-	leave
-	popq	%rsi
-	popq	%rdi
-	popq	%r15
-	popq	%r14
-	popq	%r13
-	popq	%r12
-	popq	%r11
 	popq	%r10
 	popq	%r9
 	popq	%r8
+	popq	%rcx
+	popq	%rdx
+	popq	%rsi
+	popq	%rdi
+	leave
 	ret
-linearSystemSearchSolutionSpace.noFreeVariables:
-	movq	16(%rbp),	%rdi
-	movq	8(%rbp),	%rsi
-	call	backwardsSubstitution
-	jmp	linearSystemSearchSolutionSpace.postamble
 
 _start:
 	# Pop argc, progname and first command-line input
@@ -1128,6 +1013,10 @@ _start:
 	# &pt2 = %rbp-96
 	pushq	$0
 
+	# free variables buffer
+	subq	$40,	%rsp
+	movq	%rsp,	-80(%rbp)
+
 loop:
 	leaq	-32(%rbp),	%rdi
 	movq	-8(%rbp),	%rsi
@@ -1146,10 +1035,34 @@ loop:
 	call	gaussianElimination
 	movq	%rax,	-88(%rbp)
 
+	movq	%rsp,	%rdi
+	movq	$0,	%rsi
+	movq	$40,	%rdx
+	call	memset
+
+	movq	$0,	%rcx
+	movq	$0,	%rdx
+	movq	-16(%rbp),	%rdi
+loop.findSearchBound:
+	movw	(%rdi, %rcx, 2),	%ax
+	cmpw	%ax,	%dx
+	cmovbw	%ax,	%dx
+
+	incq	%rcx
+	cmpw	-32(%rbp),	%cx
+	jl	loop.findSearchBound
+	incq	%rdx
+
 	leaq	-72(%rbp),	%rdi
 	leaq	-88(%rbp),	%rsi
+	movq	$0,	%rcx
+	movq	$0,	%r8
+	movq	$-1,	%r9
 	call	linearSystemSearchSolutionSpace
 	addq	%rax,	-96(%rbp)
+
+	movq	%rax,	%rdi
+	call	printNumber
 
 	movq	-40(%rbp),	%r8
 	cmpq	56(%rbp),	%r8
@@ -1163,15 +1076,4 @@ loop:
 
 	mov	$SYS_EXIT,	%rax
 	mov	$0,	%rdi
-	syscall
-
-overflow:
-	movq	$SYS_WRITE,	%rax
-	movq	$STDOUT,	%rdi
-	movq	$overflow_message,	%rsi
-	movq	$25,	%rdx
-	syscall
-
-	movq	$SYS_EXIT,	%rax
-	movq	$1,	%rdi
 	syscall

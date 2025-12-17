@@ -11,6 +11,8 @@
 
 .section .text
 
+.globl	memset
+.globl	compare
 .globl	copy
 .globl	power
 .globl	numberOfDigits
@@ -18,6 +20,33 @@
 .globl	alloc
 .globl	printNumber
 .globl	parseNumber
+
+# Set the %rdx bytes at %rdi to %sil
+memset:
+	movq	$0,	%rcx
+memset.loop:
+	movb	%sil,	(%rdi, %rcx)
+	incq	%rcx
+	cmpq	%rdx,	%rcx
+	jl	memset.loop
+	ret
+
+# Compare the %rdx bytes in %rdi with %rsi
+# Set %rax to 0 if the byte sequences are equal and non-zero otherwise
+compare:
+	movq	$0,	%rcx
+compare.loop:
+	movb	(%rsi, %rcx),	%al
+	cmpb	(%rdi, %rcx),	%al
+	jne	compare.returnUnequal
+	incq	%rcx
+	cmpq	%rdx,	%rcx
+	jl	compare.loop
+	movq	$0,	%rax
+	ret
+compare.returnUnequal:
+	movq	$1,	%rax
+	ret
 
 # Copy %rdx, bytes from %rsi to %rdi
 # void copy(dest, source, length)
