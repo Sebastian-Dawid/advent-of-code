@@ -27,10 +27,12 @@
 .extern	fifoPush
 .extern	fifoPop
 
-.extern	lifoInit
-.extern	lifoDeinit
-.extern	lifoPush
-.extern	lifoPop
+.extern	rationalFromInt
+.extern	rationalToInt
+.extern rationalAdd
+.extern	rationalSub
+.extern	rationalMul
+.extern	rationalDiv
 
 # struct Machine 
 # u16 number_lights
@@ -356,7 +358,7 @@ linearSystemFromMachine.fill.inner:
 	# }
 
 	movq	16(%rbp),	%rdi
-	call	linearSystemConvertToDouble
+	call	linearSystemConvertToRational
 
 	leave
 	popq	%rsi
@@ -371,10 +373,10 @@ linearSystemFromMachine.fill.inner:
 	popq	%r8
 	ret
 
-# void linearSystemConvertToDouble(LinearSystem* system)
-# Convert a linear system with an integer matrix to a linear system with a double matrix.
+# void linearSystemConvertToRational(LinearSystem* system)
+# Convert a linear system with an integer matrix to a linear system with a Rational matrix.
 # Note that this operation is performed in-place
-linearSystemConvertToDouble:
+linearSystemConvertToRational:
 	pushq	%rdi
 	pushq	%rbp
 	movq	%rsp,	%rbp
@@ -390,14 +392,16 @@ linearSystemConvertToDouble:
 	movq	(%rdi),	%rdi
 
 	movq	$0,	%rcx
-linearSystemConvertToDouble.loop:
-	vmovdqu64	(%rdi, %rcx, 8),	%zmm0
-	vcvtqq2pd	%zmm0,	%zmm1
-	vmovupd	%zmm1,	(%rdi, %rcx, 8)
+linearSystemConvertToRational.loop:
+	pushq	%rdi
+	movq	(%rdi, %rcx, 8),	%rdi
+	call	rationalFromInt
+	popq	%rdi
+	movq	%rax,	(%rdi, %rcx, 8)
 
-	addq	$8,	%rcx
+	inc	%rcx
 	cmpq	-8(%rbp),	%rcx
-	jl	linearSystemConvertToDouble.loop
+	jl	linearSystemConvertToRational.loop
 
 	leave
 	popq	%rdi
@@ -488,11 +492,9 @@ gaussianElimination.loop.findPivot:
 	movq	(%rdi),	%rdi
 	vpbroadcastq	(%rdi, %rax, 8),	%xmm0
 	call	f64abs
-	movq	-16(%rbp),	%xmm1
-	vcmplesd	%xmm1,	%xmm0,	%xmm2
-	movq	%xmm2,	%rax
-	cmpq	$-1,	%rax
-	je	gaussianElimination.loop.findPivot.postamble
+	vcomisd	-16(%rbp),	%xmm0
+	jna	gaussianElimination.loop.findPivot.postamble
+
 	# pivot = j
 	movq	-40(%rbp),	%rax
 	movq	%rax,	-8(%rbp)
@@ -541,9 +543,7 @@ gaussianElimination.loop.swap:
 
 	# if (scalar == 0) {
 	pxor	%xmm0,	%xmm0
-	vcmpeqsd	-16(%rbp),	%xmm0,	%xmm1
-	movq	%xmm1,	%rax
-	cmpq	$-1,	%rax
+	vucomisd	-16(%rbp),	%xmm0
 	jne	gaussianElimination.loop.validRow
 	# for (j = i+1; j < system.width-1; ++j) {
 	movq	-32(%rbp),	%r8
@@ -555,9 +555,7 @@ gaussianElimination.loop.findValidColumn:
 	movq	(%rdi),	%rdi
 	# if (!system.equations[i*system.width + j]) continue
 	pxor	%xmm0,	%xmm0
-	vcmpeqsd	(%rdi, %rax, 8),	%xmm0,	%xmm1
-	movq	%xmm1,	%rax
-	cmpq	$-1,	%rax
+	vucomisd	(%rdi, %rax, 8),	%xmm0
 	je	gaussianElimination.loop.findValidColumn.postamble
 
 	# for (k = 0; k < system.height; ++k) {
@@ -641,9 +639,7 @@ gaussianElimination.loop.inner:
 
 	# if (scalar == 0) continue
 	pxor	%xmm0,	%xmm0
-	vcmpeqsd	-16(%rbp),	%xmm0,	%xmm1
-	movq	%xmm1,	%rax
-	cmpq	$-1,	%rax
+	vucomisd	-16(%rbp),	%xmm0
 	je	gaussianElimination.loop.inner.postamble
 
 
@@ -695,14 +691,11 @@ gaussianElimination.findFreeVariables:
 	addq	%rcx,	%rax
 	movq	(%rdi),	%rdi
 	# if (i < rows && system.equations[i*system.width + i] != 0) continue
-	movq	(%rdi, %rax, 8),	%xmm1
-	pxor	%xmm0,	%xmm0
-	vcmpeqsd	%xmm1,	%xmm0,	%xmm2
-	movq	%xmm2,	%rax
 
 	cmpq	%r15,	%rcx
 	jge	gaussianElimination.findFreeVariables.body
-	cmpq	$-1,	%rax
+	pxor	%xmm0,	%xmm0
+	vucomisd	(%rdi, %rax, 8),	%xmm0
 	jne	gaussianElimination.findFreeVariables.postamble
 
 gaussianElimination.findFreeVariables.body:
@@ -1073,6 +1066,16 @@ loop.findSearchBound:
 
 	movq	-96(%rbp),	%rdi
 	call	printNumber
+
+	movl	$4,	%edi
+	call	rationalFromInt
+	movq	%rax,	%rsi
+
+	movl	$2,	%edi
+	call	rationalFromInt
+	movq	%rax,	%rdi
+
+	call	rationalDiv
 
 	mov	$SYS_EXIT,	%rax
 	mov	$0,	%rdi
