@@ -6,6 +6,7 @@
 .globl	rationalSub
 .globl	rationalMul
 .globl	rationalDiv
+.globl	rationalAbs
 
 # struct Rational {
 # i32 numerator
@@ -91,13 +92,20 @@ init.zeroDenominator:
 # where %rdx == 0 means valid
 rationalToInt:
 	pushq	%rdi
+	cmpl	$0,	4(%rsp)
+	je	rationalToInt.invalid
 
 	movslq	(%rsp),	%rax
+	cqto
 	movslq	4(%rsp),	%rcx
-	divq	%rcx
+	idivq	%rcx
 
+rationalToInt.postamble:
 	popq	%rdi
 	ret
+rationalToInt.invalid:
+	movq	$1,	%rdx
+	jmp	rationalToInt.postamble
 
 # Rational rationalFromInt(i32 n)
 rationalFromInt:
@@ -126,8 +134,8 @@ rationalAdd:
 	movl	%eax,	%edi
 
 	# num += y.numerator * x.denominator
-	movl	16(%rbp),	%eax
-	movl	12(%rbp),	%ecx
+	movl	8(%rbp),	%eax
+	movl	20(%rbp),	%ecx
 	mull	%ecx
 	addl	%eax,	%edi
 
@@ -158,8 +166,8 @@ rationalSub:
 	movl	%eax,	%edi
 
 	# num -= y.numerator * x.denominator
-	movl	16(%rbp),	%eax
-	movl	12(%rbp),	%ecx
+	movl	8(%rbp),	%eax
+	movl	20(%rbp),	%ecx
 	mull	%ecx
 	subl	%eax,	%edi
 
@@ -220,5 +228,17 @@ rationalDiv:
 
 	leave
 	popq	%rsi
+	popq	%rdi
+	ret
+
+rationalAbs:
+	pushq	%rdi
+	movl	(%rsp),	%edi
+	call	abs
+
+	movl	4(%rsp),	%ecx
+	shlq	$32,	%rcx
+	orq	%rcx,	%rax
+
 	popq	%rdi
 	ret

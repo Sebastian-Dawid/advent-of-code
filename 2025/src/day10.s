@@ -33,6 +33,7 @@
 .extern	rationalSub
 .extern	rationalMul
 .extern	rationalDiv
+.extern	rationalAbs
 
 # struct Machine 
 # u16 number_lights
@@ -466,13 +467,14 @@ gaussianElimination.loop:
 	movq	%rax,	-24(%rbp)
 
 	# find pivot
-	# scalar = f64abs(system.equations[i*system.width + i])
+	# scalar = rationalAbs(system.equations[i*system.width + i])
 	movq	(%rdi),	%rdi
 	movq	-32(%rbp),	%rcx
 	addq	-24(%rbp),	%rcx
-	vpbroadcastq	(%rdi, %rcx, 8),	%xmm0
-	call	f64abs
-	movq	%xmm0,	-16(%rbp)
+	movq	(%rdi, %rcx, 8),	%rdi
+	call	rationalAbs
+	movq	%rax,	-16(%rbp)
+
 	# pivot = i
 	movq	-32(%rbp),	%rax
 	movq	%rax,	-8(%rbp)
@@ -488,18 +490,22 @@ gaussianElimination.loop.findPivot:
 	mulq	%rcx
 	addq	-32(%rbp),	%rax
 
-	# if (scalar >= f64abs(system.equations[j*system.width + i])) continue
+	# if (scalar >= rationalAbs(system.equations[j*system.width + i])) continue
 	movq	(%rdi),	%rdi
-	vpbroadcastq	(%rdi, %rax, 8),	%xmm0
-	call	f64abs
-	vcomisd	-16(%rbp),	%xmm0
-	jna	gaussianElimination.loop.findPivot.postamble
+	movq	(%rdi, %rax, 8),	%rdi
+	call	rationalAbs
+
+	movq	-16(%rbp),	%rdi
+	movq	%rax,	%rsi
+	call	rationalSub
+	cmpl	$0,	%eax
+	jge	gaussianElimination.loop.findPivot.postamble
 
 	# pivot = j
 	movq	-40(%rbp),	%rax
 	movq	%rax,	-8(%rbp)
-	# scalar = f64abs(system.equations[j*system.width + i])
-	movq	%xmm0,	-16(%rbp)
+	# scalar = rationalAbs(system.equations[j*system.width + i])
+	movq	%rsi,	-16(%rbp)
 gaussianElimination.loop.findPivot.postamble:
 	incq	-40(%rbp)
 	movq	8(%rbp),	%rdi
@@ -542,20 +548,25 @@ gaussianElimination.loop.swap:
 	movq	%rax,	-16(%rbp)
 
 	# if (scalar == 0) {
-	pxor	%xmm0,	%xmm0
-	vucomisd	-16(%rbp),	%xmm0
+	cmpl	$0,	-16(%rbp)
 	jne	gaussianElimination.loop.validRow
+
 	# for (j = i+1; j < system.width-1; ++j) {
 	movq	-32(%rbp),	%r8
 	incq	%r8
 gaussianElimination.loop.findValidColumn:
+	movq	8(%rbp),	%rdi
+	movq	8(%rdi),	%r9
+	decq	%r9
+	cmpq	%r9,	%r8
+	jge	gaussianElimination.loop.postamble
+
 	movq	-24(%rbp),	%rax
 	addq	%r8,	%rax
 	movq	8(%rbp),	%rdi
 	movq	(%rdi),	%rdi
-	# if (!system.equations[i*system.width + j]) continue
-	pxor	%xmm0,	%xmm0
-	vucomisd	(%rdi, %rax, 8),	%xmm0
+	# if (system.equations[i*system.width + j] == 0) continue
+	cmpl	$0,	(%rdi, %rax, 8)
 	je	gaussianElimination.loop.findValidColumn.postamble
 
 	# for (k = 0; k < system.height; ++k) {
@@ -588,13 +599,8 @@ gaussianElimination.loop.findValidColumn.swap:
 
 gaussianElimination.loop.findValidColumn.postamble:
 	incq	%r8
-	movq	8(%rbp),	%rdi
-	movq	8(%rdi),	%r9
-	decq	%r9
-	cmpq	%r9,	%r8
-	jl	gaussianElimination.loop.findValidColumn
+	jmp	gaussianElimination.loop.findValidColumn
 	# } else continue
-	jmp	gaussianElimination.loop.postamble
 	# }
 gaussianElimination.loop.validRow:
 	movq	8(%rbp),	%rdi
@@ -613,9 +619,14 @@ gaussianElimination.loop.div:
 	# system.equations[i*system.width + j] /= scalar
 	movq	-24(%rbp),	%r8
 	addq	%rcx,	%r8
-	movq	(%rdi, %r8, 8),	%xmm0
-	vdivsd	-16(%rbp),	%xmm0,	%xmm0
-	movq	%xmm0,	(%rdi, %r8, 8)
+	pushq	%rdi
+	movq	(%rdi, %r8, 8),	%rdi
+	movq	-16(%rbp),	%rsi
+	pushq	%rcx
+	call	rationalDiv
+	popq	%rcx
+	popq	%rdi
+	movq	%rax,	(%rdi, %r8, 8)
 
 	incq	%rcx
 	movq	8(%rbp),	%rdi
@@ -638,8 +649,7 @@ gaussianElimination.loop.inner:
 	movq	%rax,	-16(%rbp)
 
 	# if (scalar == 0) continue
-	pxor	%xmm0,	%xmm0
-	vucomisd	-16(%rbp),	%xmm0
+	cmpl	$0,	-16(%rbp)
 	je	gaussianElimination.loop.inner.postamble
 
 
@@ -648,16 +658,22 @@ gaussianElimination.loop.inner:
 	movq	8(%rbp),	%rdi
 gaussianElimination.loop.inner.inner:
 	movq	(%rdi),	%rdi
-	movq	-40(%rbp),	%rax
-	addq	%r9,	%rax
+	movq	-40(%rbp),	%r11
+	addq	%r9,	%r11
 	movq	-24(%rbp),	%r10
 	addq	%r9,	%r10
 	# system.equations[j*system.width + k] -= scalar * system.equations[i*system.width + k]
-	movq	(%rdi, %r10, 8),	%xmm0
-	vmulsd	-16(%rbp),	%xmm0,	%xmm1
-	movq	(%rdi, %rax, 8),	%xmm2
-	vsubsd	%xmm2,	%xmm1,	%xmm2
-	movq	%xmm2,	(%rdi, %rax, 8)
+	pushq	%rdi
+	movq	(%rdi, %r10, 8),	%rdi
+	movq	-16(%rbp),	%rsi
+	call	rationalMul
+	
+	movq	(%rsp),	%rdi
+	movq	(%rdi, %r11, 8),	%rdi
+	movq	%rax,	%rsi
+	call	rationalSub
+	popq	%rdi
+	movq	%rax,	(%rdi, %r11, 8)
 
 	incq	%r9
 	movq	8(%rbp),	%rdi
@@ -694,8 +710,7 @@ gaussianElimination.findFreeVariables:
 
 	cmpq	%r15,	%rcx
 	jge	gaussianElimination.findFreeVariables.body
-	pxor	%xmm0,	%xmm0
-	vucomisd	(%rdi, %rax, 8),	%xmm0
+	cmpl	$0,	(%rdi, %rax, 8)
 	jne	gaussianElimination.findFreeVariables.postamble
 
 gaussianElimination.findFreeVariables.body:
@@ -778,15 +793,13 @@ backwardsSubstitution.loop:
 	movl	$1,	%r8d
 	shll	%cl,	%r8d
 	# if ((1 << i) & variables.variables) {
+	movq	8(%rbp),	%rsi
 	testl	4(%rsi),	%r8d
 	jz	backwardsSubstitution.loop.else
 	# solution[i] = variables.values[k]
 	movq	8(%rsi),	%rax
-	movzwq	(%rax, %r15, 2),	%rax
-	movq	%rax,	%xmm0
-	vcvtqq2pd	%xmm0,	%xmm0
-	movq	-8(%rbp),	%rax
-	movq	%xmm0,	(%rax, %rcx, 8)
+	movzwq	(%rax, %r15, 2),	%rdx
+	movq	%rdx,	(%rax, %rcx, 8)
 	# k++
 	incq	%r15
 	# continue
@@ -795,56 +808,73 @@ backwardsSubstitution.loop:
 backwardsSubstitution.loop.else:
 	# solution[i] = system.equations[(i+1)*system.width-1]
 	leaq	1(%rcx),	%rax
+	movq	16(%rbp),	%rdi
 	movq	8(%rdi),	%rdx
 	mulq	%rdx
 	movq	(%rdi),	%r10
-	movq	-8(%r10, %rax, 8),	%rdx
-	movq	-8(%rbp),	%r9
-	movq	%rdx,	(%r9, %rcx, 8)
+	movq	-8(%r10, %rax, 8),	%r14
+
 	subq	8(%rdi),	%rax
 	shl	$3,	%rax
 	addq	%rax,	%r10
 	# for (j = system.width - 2; j > i; --j) {
 	movq	8(%rdi),	%r8
 	subq	$2,	%r8
+	movq	-8(%rbp),	%r9
+	pushq	%rcx
 backwardsSubstitution.loop.inner:
-	cmpq	%rcx,	%r8
-	jle	backwardsSubstitution.loop.postamble
+	cmpq	(%rsp),	%r8
+	jle	backwardsSubstitution.loop.inner.after
 	# solution[i] -= solution[j] * system.equations[i*system.width + j]
-	movq	(%r9, %r8, 8),	%xmm0
-	vmulsd	(%r10, %r8, 8), %xmm0, %xmm1
-	movq	(%r9,	%rcx, 8),	%xmm2
-	vsubsd	%xmm1,	%xmm2,	%xmm2
-	movq	%xmm2,	(%r9, %rcx, 8)
+	movq	(%r9, %r8, 8),	%rdi
 
+	pushq	%r8
+	call	rationalFromInt
+	movq	%rax,	%rdi
+	popq	%r8
+
+	movq	(%r10, %r8, 8),	%rsi
+	pushq	%r8
+	call	rationalMul
+
+	movq	%r14,	%rdi
+	movq	%rax,	%rsi
+	call	rationalSub
+	movq	%rax,	%r14
+
+	popq	%r8
 	decq	%r8
 	jmp	backwardsSubstitution.loop.inner
 	# }
-
+backwardsSubstitution.loop.inner.after:
+	# convert Rational to quad word and write back
+	movq	%r14,	%rdi
+	call	rationalToInt
+	# check if value is valid (no remainder)
+	cmpq	$0,	%rdx
+	jne	backwardsSubstitution.invalidSolution
+	popq	%rcx
+	movq	%rax,	(%r9, %rcx, 8)
 backwardsSubstitution.loop.postamble:
 	decq	%rcx
 	cmpq	$0,	%rcx
 	jge	backwardsSubstitution.loop
 	# }
 
+	movq	16(%rbp),	%rdi
 	movq	8(%rdi),	%rcx
-	decq	%rcx
+	subq	$2,	%rcx
 
-	pxor	%xmm0,	%xmm0
+	movq	$0,	%rax
 backwardsSubstitution.sum:
-	popq	%rax
-	movq	%rax,	%xmm1
-	pxor	%xmm3,	%xmm3
-	ucomisd	%xmm1,	%xmm3
-	ja	backwardsSubstitution.negativeSolution
-	vaddsd	%xmm1,	%xmm0,	%xmm0
+	popq	%rdx
+	cmpq	$0,	%rdx
+	jl	backwardsSubstitution.invalidSolution
+	addq	%rdx,	%rax
 
 	decq	%rcx
 	cmpq	$0,	%rcx
 	jge	backwardsSubstitution.sum
-
-	vcvtpd2qq	%xmm0,	%xmm0
-	movq	%xmm0,	%rax
 
 backwardsSubstitution.postamble:
 	leave
@@ -859,7 +889,7 @@ backwardsSubstitution.postamble:
 	popq	%r9
 	popq	%r8
 	ret
-backwardsSubstitution.negativeSolution:
+backwardsSubstitution.invalidSolution:
 	movq	$-1,	%rax
 	jmp	backwardsSubstitution.postamble
 
@@ -1066,16 +1096,6 @@ loop.findSearchBound:
 
 	movq	-96(%rbp),	%rdi
 	call	printNumber
-
-	movl	$4,	%edi
-	call	rationalFromInt
-	movq	%rax,	%rsi
-
-	movl	$2,	%edi
-	call	rationalFromInt
-	movq	%rax,	%rdi
-
-	call	rationalDiv
 
 	mov	$SYS_EXIT,	%rax
 	mov	$0,	%rdi
