@@ -49,7 +49,7 @@ init:
 	subq	$8,	%rsp
 
 	# if (denominator == 0) return {0, 1}
-	cmpq	$0,	%rsi
+	cmpl	$0,	%esi
 	je	init.zeroDenominator
 	# if (denominator < 0) { numerator = -numerator; denominator = -denominator }
 	jg	init.mainBody
@@ -66,14 +66,16 @@ init.mainBody:
 	movslq	%esi,	%rdi
 	movslq	%eax,	%rsi
 	call	gcd
-	movl	%eax,	%ecx
+	movq	%rax,	%rcx
 
 	# return { numerator/common, denominator/common }
-	movl	-8(%rbp),	%eax
-	divl	%ecx
+	movslq	-8(%rbp),	%rax
+	cqto
+	idivq	%rcx
 	movl	%eax,	-8(%rbp)
-	movl	-4(%rbp),	%eax
-	divl	%ecx
+	movslq	-4(%rbp),	%rax
+	cqto
+	idivq	%rcx
 	movl	%eax,	-4(%rbp)
 	movq	-8(%rbp),	%rax
 init.postamble:
@@ -124,19 +126,19 @@ rationalAdd:
 	# denom = x.denominator * y.denominator
 	movl	12(%rbp),	%eax
 	movl	20(%rbp),	%ecx
-	mull	%ecx
+	imull	%ecx
 	movl	%eax,	%esi
 
 	# num = x.numerator * y.denominator
 	movl	16(%rbp),	%eax
 	movl	12(%rbp),	%ecx
-	mull	%ecx
+	imull	%ecx
 	movl	%eax,	%edi
 
 	# num += y.numerator * x.denominator
 	movl	8(%rbp),	%eax
 	movl	20(%rbp),	%ecx
-	mull	%ecx
+	imull	%ecx
 	addl	%eax,	%edi
 
 	# init(num, denom)
@@ -156,19 +158,19 @@ rationalSub:
 	# denom = x.denominator * y.denominator
 	movl	12(%rbp),	%eax
 	movl	20(%rbp),	%ecx
-	mull	%ecx
+	imull	%ecx
 	movl	%eax,	%esi
 
 	# num = x.numerator * y.denominator
 	movl	16(%rbp),	%eax
 	movl	12(%rbp),	%ecx
-	mull	%ecx
+	imull	%ecx
 	movl	%eax,	%edi
 
 	# num -= y.numerator * x.denominator
 	movl	8(%rbp),	%eax
 	movl	20(%rbp),	%ecx
-	mull	%ecx
+	imull	%ecx
 	subl	%eax,	%edi
 
 	# init(num, denom)
@@ -188,13 +190,13 @@ rationalMul:
 	# denom = x.denominator * y.denominator
 	movl	12(%rbp),	%eax
 	movl	20(%rbp),	%ecx
-	mull	%ecx
+	imull	%ecx
 	movl	%eax,	%esi
 
 	# num = x.numerator * y.numerator
 	movl	16(%rbp),	%eax
 	movl	8(%rbp),	%ecx
-	mull	%ecx
+	imull	%ecx
 	movl	%eax,	%edi
 
 	# init(num, denom)
@@ -214,13 +216,13 @@ rationalDiv:
 	# denom = x.denominator * y.numerator
 	movl	8(%rbp),	%eax
 	movl	20(%rbp),	%ecx
-	mull	%ecx
+	imull	%ecx
 	movl	%eax,	%esi
 
 	# num = x.numerator * y.denominator
 	movl	16(%rbp),	%eax
 	movl	12(%rbp),	%ecx
-	mull	%ecx
+	imull	%ecx
 	movl	%eax,	%edi
 
 	# init(num, denom)
