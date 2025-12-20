@@ -799,6 +799,7 @@ backwardsSubstitution.loop:
 	# solution[i] = variables.values[k]
 	movq	8(%rsi),	%rax
 	movzwq	(%rax, %r15, 2),	%rdx
+	movq	-8(%rbp),	%rax
 	movq	%rdx,	(%rax, %rcx, 8)
 	# k++
 	incq	%r15
@@ -914,7 +915,7 @@ linearSystemSearchSolutionSpace:
 
 	# if (current_cost >= current_min) return current_min;
 	cmpq	%r9,	%r8
-	cmovae	%r9,	%rax
+	cmovaeq	%r9,	%rax
 	jae	linearSystemSearchSolutionSpace.postamble
 
 	# if (depth == variables.count) {
@@ -926,7 +927,6 @@ linearSystemSearchSolutionSpace:
 	# if (candidate < 0 || candidate >= current_min) return current_min
 	cmpq	$0,	%rax
 	cmovlq	%r9,	%rax
-	jl	linearSystemSearchSolutionSpace.postamble
 	cmpq	%r9,	%rax
 	cmovaq	%r9,	%rax
 	# return candidate
@@ -959,6 +959,7 @@ linearSystemSearchSolutionSpace.loop:
 	incq	%rcx
 	addq	%r10,	%r8
 	call	linearSystemSearchSolutionSpace
+	# %rax will be either less than or equal to the current minimum
 	movq	%rax,	%r9
 
 	# if (current_min <= current_cost + i) return candidate
@@ -971,7 +972,6 @@ linearSystemSearchSolutionSpace.loop:
 	incq	%r10
 	jmp	linearSystemSearchSolutionSpace.loop
 	# }
-
 linearSystemSearchSolutionSpace.postamble:
 	popq	%r10
 	popq	%r9
@@ -1083,9 +1083,6 @@ loop.findSearchBound:
 	movq	$-1,	%r9
 	call	linearSystemSearchSolutionSpace
 	addq	%rax,	-96(%rbp)
-
-	movq	%rax,	%rdi
-	call	printNumber
 
 	movq	-40(%rbp),	%r8
 	cmpq	56(%rbp),	%r8
