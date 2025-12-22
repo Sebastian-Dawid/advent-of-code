@@ -170,16 +170,56 @@ parse.find.found:
 	movq	%rcx,	%rax
 	jmp	parse.find.postamble
 
-# u64 networkBFS(Network* network, u64 node) {
-# if (node == network.out) return 1
-# result = 0
-# for (i = 0; i < network.count; ++i) {
-# if (network.connections[node*count + i]) {
-# result += networkBFS(network, i)
-# }
-# }
-# return result
-# }
+# u64 networkDFS(Network* network, u64 node)
+networkDFS:
+	pushq	%rdi
+	pushq	%rsi
+	pushq	%rbp
+	movq	%rsp,	%rbp
+
+	# if (node == network.out) return 1
+	cmpq	$0,	%rsi
+	je	networkDFS.foundOut
+
+	# result = 0
+	# &result = %rbp-8
+	pushq	$0
+
+	# for (i = 0; i < network.count; ++i) {
+	# &i = %rbp-16
+	pushq	$0
+networkDFS.loop:
+	movq	8(%rbp),	%rsi
+	movq	(%rdi),	%rax
+	mulq	%rsi
+	addq	-16(%rbp),	%rax
+	movq	24(%rdi),	%rdx
+	# if (network.connections[node*network.count + i]) {
+	cmpb	$0,	(%rdx, %rax)
+	je	networkDFS.loop.postamble
+	# result += networkDFS(network, i)
+	movq	-16(%rbp),	%rsi
+	call	networkDFS
+	addq	%rax,	-8(%rbp)
+	# }
+networkDFS.loop.postamble:
+	incq	-16(%rbp)
+	movq	-16(%rbp),	%rcx
+	cmpq	(%rdi),	%rcx
+	jl	networkDFS.loop
+	# }
+
+	# return result
+	movq	-8(%rbp),	%rax
+
+networkDFS.postamble:
+	leave
+	popq	%rsi
+	popq	%rdi
+	ret
+networkDFS.foundOut:
+	movq	$1,	%rax
+	jmp	networkDFS.postamble
 
 _start:
 	# Pop argc, progname and first command-line input
@@ -225,6 +265,13 @@ _start:
 	movq	-8(%rbp),	%rsi
 	movq	56(%rbp),	%rdx
 	call	parse
+
+	leaq	-40(%rbp),	%rdi
+	movq	-32(%rbp),	%rsi
+	call	networkDFS
+
+	movq	%rax,	%rdi
+	call	printNumber
 
 	mov	$SYS_EXIT,	%rax
 	mov	$0,	%rdi
