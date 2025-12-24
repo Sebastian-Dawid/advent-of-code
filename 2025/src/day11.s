@@ -20,9 +20,11 @@
 # struct Network {
 # u64 count       (offset  0)
 # u64 you         (offset  8)
-# u64 out         (offset 16)
-# u8* connections (offset 24)
-# } (size = 32 bytes)
+# u64 svr         (offset 16)
+# u64 dac         (offset 24)
+# u64 fft         (offset 32)
+# u8* connections (offset 40)
+# } (size = 48 bytes)
 
 # Network parse(u8* input, u64 length)
 parse:
@@ -78,7 +80,7 @@ parse.findNodes.skip:
 	call	alloc
 	addq	$8,	%rax
 	movq	-8(%rbp),	%rdi
-	movq	%rax,	24(%rdi)
+	movq	%rax,	40(%rdi)
 
 	# while (i < length) {
 	movq	-24(%rbp),	%rdx
@@ -101,10 +103,29 @@ parse.loop:
 
 	movl	%edi,	%r11d
 	movq	-8(%rbp),	%rdi
+	# node 'you'
 	movq	8(%rdi),	%r10
 	cmpl	$0x00796f75,	%r11d
 	cmoveq	%r8,	%r10
 	movq	%r10,	8(%rdi)
+
+	# node 'svr'
+	movq	16(%rdi),	%r10
+	cmpl	$0x00737672,	%r11d
+	cmoveq	%r8,	%r10
+	movq	%r10,	16(%rdi)
+
+	# node 'dac'
+	movq	24(%rdi),	%r10
+	cmpl	$0x00646163,	%r11d
+	cmoveq	%r8,	%r10
+	movq	%r10,	24(%rdi)
+
+	# node 'fft'
+	movq	32(%rdi),	%r10
+	cmpl	$0x00666674,	%r11d
+	cmoveq	%r8,	%r10
+	movq	%r10,	32(%rdi)
 
 	addq	$5,	%rcx
 	# while (input[i-1] != '\n') {
@@ -127,7 +148,7 @@ parse.loop.inner:
 
 	movq	-8(%rbp),	%rdi
 	movq	(%rdi),	%rax
-	movq	24(%rdi),	%rdi
+	movq	40(%rdi),	%rdi
 
 	# determine x and y
 	mulq	%r8
@@ -170,15 +191,21 @@ parse.find.found:
 	movq	%rcx,	%rax
 	jmp	parse.find.postamble
 
-# u64 networkDFS(Network* network, u64 node)
+# u64 networkDFS(Network* network, u64 node, u64 target, u64* visited)
 networkDFS:
 	pushq	%rdi
 	pushq	%rsi
+	pushq	%rdx
+	pushq	%rcx
 	pushq	%rbp
 	movq	%rsp,	%rbp
 
+	# if (visited[node] != -1) return visited[node]
+	cmpq	$-1,	(%rcx, %rsi, 8)
+	jne	networkDFS.alreadyVisited
+
 	# if (node == network.out) return 1
-	cmpq	$0,	%rsi
+	cmpq	%rdx,	%rsi
 	je	networkDFS.foundOut
 
 	# result = 0
@@ -189,36 +216,47 @@ networkDFS:
 	# &i = %rbp-16
 	pushq	$0
 networkDFS.loop:
-	movq	8(%rbp),	%rsi
+	movq	24(%rbp),	%rsi
 	movq	(%rdi),	%rax
 	mulq	%rsi
 	addq	-16(%rbp),	%rax
-	movq	24(%rdi),	%rdx
+	movq	40(%rdi),	%r9
 	# if (network.connections[node*network.count + i]) {
-	cmpb	$0,	(%rdx, %rax)
+	cmpb	$0,	(%r9, %rax)
 	je	networkDFS.loop.postamble
-	# result += networkDFS(network, i)
+	# result += networkDFS(network, i, check_dac_fft, found_dac, found_fft)
 	movq	-16(%rbp),	%rsi
+	movq	16(%rbp),	%rdx
+	movq	8(%rbp),	%rcx
 	call	networkDFS
 	addq	%rax,	-8(%rbp)
 	# }
 networkDFS.loop.postamble:
 	incq	-16(%rbp)
-	movq	-16(%rbp),	%rcx
-	cmpq	(%rdi),	%rcx
+	movq	-16(%rbp),	%r9
+	cmpq	(%rdi),	%r9
 	jl	networkDFS.loop
 	# }
-
+	
 	# return result
 	movq	-8(%rbp),	%rax
+	# visited[node] = result
+	movq	24(%rbp),	%rsi
+	movq	8(%rbp),	%rcx
+	movq	%rax,	(%rcx,	%rsi, 8)
 
 networkDFS.postamble:
 	leave
+	popq	%rcx
+	popq	%rdx
 	popq	%rsi
 	popq	%rdi
 	ret
 networkDFS.foundOut:
 	movq	$1,	%rax
+	jmp	networkDFS.postamble
+networkDFS.alreadyVisited:
+	movq	(%rcx, %rsi, 8),	%rax
 	jmp	networkDFS.postamble
 
 _start:
@@ -259,16 +297,78 @@ _start:
 	movq	%r8,	%rdi
 	syscall
 
-	# &network = %rbp-40
-	subq	$32,	%rsp
+	# &network = %rbp-56
+	subq	$48,	%rsp
 	movq	%rsp,	%rdi
 	movq	-8(%rbp),	%rsi
 	movq	56(%rbp),	%rdx
 	call	parse
 
-	leaq	-40(%rbp),	%rdi
-	movq	-32(%rbp),	%rsi
+	# &pt2 = %rbp-64
+	pushq	$0
+
+	movq	-56(%rbp),	%rdx
+	shlq	$3,	%rdx
+	subq	%rdx,	%rsp
+	movq	%rsp,	%rdi
+	movq	$-1,	%rsi
+	call	memset
+
+	leaq	-56(%rbp),	%rdi
+	movq	-48(%rbp),	%rsi
+	movq	$0,	%rdx
+	movq	%rsp,	%rcx
 	call	networkDFS
+
+	movq	%rax,	%rdi
+	call	printNumber
+
+	# only svr -> fft -> dac -> out makes logical sense (no fft after digital to analog, since the signal is no longer digital/discrete)
+	# svr -> fft
+	movq	-56(%rbp),	%rdx
+	shlq	$3,	%rdx
+	movq	%rsp,	%rdi
+	movq	$-1,	%rsi
+	call	memset
+
+	leaq	-56(%rbp),	%rdi
+	movq	-40(%rbp),	%rsi
+	movq	-24(%rbp),	%rdx
+	movq	%rsp,	%rcx
+	call	networkDFS
+	movq	%rax,	-64(%rbp)
+
+	# fft -> dac
+	movq	-56(%rbp),	%rdx
+	shlq	$3,	%rdx
+	movq	%rsp,	%rdi
+	movq	$-1,	%rsi
+	call	memset
+
+	leaq	-56(%rbp),	%rdi
+	movq	-24(%rbp),	%rsi
+	movq	-32(%rbp),	%rdx
+	movq	%rsp,	%rcx
+	call	networkDFS
+	movq	-64(%rbp),	%rcx
+	mulq	%rcx
+	movq	%rax,	-64(%rbp)
+
+	# dac -> out
+	movq	-56(%rbp),	%rdx
+	shlq	$3,	%rdx
+	movq	%rsp,	%rdi
+	movq	$-1,	%rsi
+	call	memset
+
+	leaq	-56(%rbp),	%rdi
+	movq	-32(%rbp),	%rsi
+	movq	$0,	%rdx
+	movq	%rsp,	%rcx
+	call	networkDFS
+	movq	-64(%rbp),	%rcx
+	mulq	%rcx
+	movq	%rax,	-64(%rbp)
 
 	movq	%rax,	%rdi
 	call	printNumber
