@@ -15,4 +15,4 @@ https://adventofcode.com/2025
 |   9 |  x  |  x  |  x  |     |
 |  10 |  x  |  x  |  x  |     |
 |  11 |  x  |  x  |  x  |     |
-|  12 |     |     |     |     |
+|  12 |  x  |  x  |  x  |     |
